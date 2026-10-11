@@ -60,7 +60,7 @@ JellyCast Architecture
 
 You can download the pre-compiled APK directly from the **[Releases](../../releases)** tab of this repository:
 1. Go to the latest release (`v1.0-latest`).
-2. Download `JellyScribe.apk`.
+2. Download `JellyCast.apk`.
 3. Install the APK on your Android device (ensure "Install from unknown sources" is enabled in settings).
 
 ---
@@ -107,7 +107,7 @@ This repository includes a fully configured GitHub Actions workflow (`.github/wo
   - `actions/setup-java@v6`
   - `actions/upload-artifact@v6`
   - `softprops/action-gh-release@v3`
-- Automatically compiles the Android project on pushes to `main` and publishes `JellyScribe.apk` directly under Releases.
+- Automatically compiles the Android project on pushes to `main` and publishes `JellyCast.apk` directly under Releases.
 
 ---
 
