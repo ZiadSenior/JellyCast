@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">JellyCast</string>
+    <string name="server_url">Jellyfin Server URL</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="connect">Connect</string>
+    <string name="libraries">Libraries</string>
+    <string name="dlna_devices">Cast to DLNA Device</string>
+    <string name="remote_control">Remote Control</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+</resources>

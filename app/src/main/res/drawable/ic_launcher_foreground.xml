@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Cast waves / screen frame -->
+    <!-- Screen display outline -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M28,30C28,26.69 30.69,24 34,24H74C77.31,24 80,26.69 80,30V56C80,59.31 77.31,62 74,62H34C30.69,62 28,59.31 28,56V30ZM34,28C32.9,28 32,28.9 32,30V56C32,57.1 32.9,58 34,58H74C75.1,58 76,57.1 76,56V30C76,28.9 75.1,28 74,28H34Z" />
+
+    <!-- Screen stand -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M48,62H60V66H48Z" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M42,66H66V69H42Z" />
+
+    <!-- Floating modern remote controller over screen -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,40C46,36.69 48.69,34 52,34H68C71.31,34 74,36.69 74,40V78C74,81.31 71.31,84 68,84H52C48.69,84 46,81.31 46,78V40Z" />
+
+    <!-- Remote power button (accent color) -->
+    <path
+        android:fillColor="#EC4899"
+        android:pathData="M60,40m-2.5,0a2.5,2.5 0 1,0 5,0a2.5,2.5 0 1,0 -5,0" />
+
+    <!-- Remote D-pad circle -->
+    <path
+        android:fillColor="#6366F1"
+        android:pathData="M60,54m-8,0a8,8 0 1,0 16,0a8,8 0 1,0 -16,0" />
+
+    <!-- Play arrow inside D-pad -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M58,50L64,54L58,58Z" />
+
+    <!-- Remote buttons -->
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M51,66H57V69H51ZM63,66H69V69H63ZM51,72H57V75H51ZM63,72H69V75H63Z" />
+
+    <!-- Cast signal arcs in top-left -->
+    <path
+        android:fillColor="#A855F7"
+        android:pathData="M34,48C34,44.69 36.69,42 40,42V39C35.03,39 31,43.03 31,48H34Z" />
+    <path
+        android:fillColor="#C084FC"
+        android:pathData="M34,44C34,42.9 34.9,42 36,42V39C33.24,39 31,41.24 31,44H34Z" />
+    <path
+        android:fillColor="#E9D5FF"
+        android:pathData="M32.5,47m-1.5,0a1.5,1.5 0 1,0 3,0a1.5,1.5 0 1,0 -3,0" />
+</vector>
