@@ -7,6 +7,7 @@ import com.example.data.model.DlnaDevice
 import com.example.data.model.JellyfinMediaItem
 import com.example.data.model.PositionInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -30,7 +31,10 @@ class DlnaController(private val context: Context) {
         .writeTimeout(6, TimeUnit.SECONDS)
         .build()
 
-    suspend fun discoverLocalDevices(timeoutMs: Int = 3500): List<DlnaDevice> = withContext(Dispatchers.IO) {
+    suspend fun discoverLocalDevices(
+        timeoutMs: Int = 3500,
+        ignoredHosts: Set<String> = emptySet()
+    ): List<DlnaDevice> = withContext(Dispatchers.IO) {
         val discoveredList = mutableListOf<DlnaDevice>()
         val seenLocations = mutableSetOf<String>()
 
@@ -49,7 +53,7 @@ class DlnaController(private val context: Context) {
             val ssdpAddress = InetAddress.getByName("239.255.255.250")
             val ssdpPort = 1900
 
-            // Search targets: AVTransport, MediaRenderer, rootdevice
+            // Search targets: specifically AVTransport and MediaRenderer
             val searchTargets = listOf(
                 "urn:schemas-upnp-org:service:AVTransport:1",
                 "urn:schemas-upnp-org:device:MediaRenderer:1",
@@ -80,7 +84,13 @@ class DlnaController(private val context: Context) {
 
                     val location = parseHeader(response, "LOCATION")
                     if (!location.isNullOrBlank() && seenLocations.add(location)) {
-                        val device = fetchDeviceDescription(location)
+                        // Quick host filter before network fetch
+                        val locHost = try { URL(location).host } catch (e: Exception) { "" }
+                        if (isIgnoredHost(locHost, ignoredHosts)) {
+                            continue
+                        }
+
+                        val device = fetchDeviceDescription(location, ignoredHosts)
                         if (device != null) {
                             discoveredList.add(device)
                         }
@@ -103,6 +113,14 @@ class DlnaController(private val context: Context) {
         discoveredList
     }
 
+    private fun isIgnoredHost(host: String, ignoredHosts: Set<String>): Boolean {
+        if (host.isBlank()) return true
+        if (host in ignoredHosts) return true
+        // Default router/gateway IPs
+        if (host == "192.168.1.1" || host == "192.168.0.1" || host == "10.0.0.1") return true
+        return false
+    }
+
     private fun parseHeader(response: String, header: String): String? {
         val lines = response.lines()
         for (line in lines) {
@@ -114,17 +132,31 @@ class DlnaController(private val context: Context) {
         return null
     }
 
-    suspend fun fetchDeviceDescription(locationUrl: String): DlnaDevice? = withContext(Dispatchers.IO) {
+    suspend fun fetchDeviceDescription(
+        locationUrl: String,
+        ignoredHosts: Set<String> = emptySet()
+    ): DlnaDevice? = withContext(Dispatchers.IO) {
         try {
+            val urlObj = URL(locationUrl)
+            val host = urlObj.host
+            if (isIgnoredHost(host, ignoredHosts)) {
+                return@withContext null
+            }
+
             val request = Request.Builder().url(locationUrl).build()
             val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) return@withContext null
             val xml = response.body?.string() ?: return@withContext null
 
-            val urlObj = URL(locationUrl)
+            // Discard UPnP router gateway devices or server-only devices
+            if (xml.contains("urn:schemas-upnp-org:device:InternetGatewayDevice", ignoreCase = true) ||
+                xml.contains("urn:schemas-upnp-org:device:WANDevice", ignoreCase = true) ||
+                xml.contains("urn:schemas-upnp-org:device:WANConnectionDevice", ignoreCase = true)) {
+                return@withContext null
+            }
+
             val portPart = if (urlObj.port != -1) ":${urlObj.port}" else ""
             val baseUrl = "${urlObj.protocol}://${urlObj.host}$portPart"
-            val host = urlObj.host
 
             var friendlyName = "DLNA Media Renderer"
             var modelName: String? = null
@@ -187,12 +219,18 @@ class DlnaController(private val context: Context) {
                 eventType = parser.next()
             }
 
-            // Fallback URLs if not explicitly specified in service descriptor
-            if (avTransportControlUrl == null) {
-                avTransportControlUrl = "$baseUrl/upnp/control/AVTransport1"
+            // Exclude routers, gateways, or jellyfin server instances by name
+            val lowerName = friendlyName.lowercase()
+            if (lowerName.contains("router") ||
+                lowerName.contains("gateway") ||
+                lowerName.contains("jellyfin")) {
+                return@withContext null
             }
-            if (renderingControlUrl == null) {
-                renderingControlUrl = "$baseUrl/upnp/control/RenderingControl1"
+
+            // Strict MediaRenderer requirement: Must actually support AVTransport!
+            // Routers and media servers do NOT provide AVTransport.
+            if (avTransportControlUrl.isNullOrBlank()) {
+                return@withContext null
             }
 
             DlnaDevice(
@@ -230,7 +268,6 @@ class DlnaController(private val context: Context) {
             }
         }
 
-        // Direct fallback device with standard UPnP endpoints
         DlnaDevice(
             id = "manual:$cleanIp:$port",
             friendlyName = name.ifBlank { "DLNA TV ($cleanIp)" },
@@ -258,103 +295,140 @@ class DlnaController(private val context: Context) {
         mediaUrl: String,
         mediaItem: JellyfinMediaItem
     ): Result<Boolean> = withContext(Dispatchers.IO) {
-        val didlLite = buildDidlMetadata(mediaItem, mediaUrl)
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <CurrentURI><![CDATA[$mediaUrl]]></CurrentURI>
-                  <CurrentURIMetaData><![CDATA[$didlLite]]></CurrentURIMetaData>
-                </u:SetAVTransportURI>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        // Step 1: Pre-emptively stop any active playback to clear the renderer state machine
+        try {
+            stop(device)
+        } catch (ignored: Exception) {}
+        delay(150)
 
-        sendSoapAction(
+        val escapedUri = xmlEscape(mediaUrl)
+        val didlMetadata = buildDidlMetadata(mediaItem, mediaUrl)
+        val escapedMetadata = xmlEscape(didlMetadata)
+
+        // Attempt 1: Standard UPnP with escaped DIDL-Lite metadata (NO CDATA)
+        val bodyWithMetadata = buildSetUriSoapEnvelope(escapedUri, escapedMetadata)
+        val result1 = sendSoapAction(
             device.avTransportControlUrl,
             "urn:schemas-upnp-org:service:AVTransport:1",
             "SetAVTransportURI",
-            body
+            bodyWithMetadata
         )
+        if (result1.isSuccess) {
+            return@withContext Result.success(true)
+        }
+
+        Log.w(tag, "Attempt 1 with DIDL-Lite failed: ${result1.exceptionOrNull()?.message}. Retrying with empty metadata...")
+
+        // Attempt 2: Empty metadata (<CurrentURIMetaData></CurrentURIMetaData>)
+        // Critical for embedded renderers like Sunplus, MStar, and set-top boxes that reject DIDL-Lite
+        val bodyEmptyMetadata = buildSetUriSoapEnvelope(escapedUri, "")
+        val result2 = sendSoapAction(
+            device.avTransportControlUrl,
+            "urn:schemas-upnp-org:service:AVTransport:1",
+            "SetAVTransportURI",
+            bodyEmptyMetadata
+        )
+        if (result2.isSuccess) {
+            return@withContext Result.success(true)
+        }
+
+        // Attempt 3: Try alternative URL formatting if URL has query parameters
+        if (mediaUrl.contains("/stream.mp4?")) {
+            val altUrl = mediaUrl.replace("/stream.mp4?", "/stream?")
+            val altEscaped = xmlEscape(altUrl)
+            val bodyAlt = buildSetUriSoapEnvelope(altEscaped, "")
+            val result3 = sendSoapAction(
+                device.avTransportControlUrl,
+                "urn:schemas-upnp-org:service:AVTransport:1",
+                "SetAVTransportURI",
+                bodyAlt
+            )
+            if (result3.isSuccess) {
+                return@withContext Result.success(true)
+            }
+        }
+
+        result2
+    }
+
+    private fun buildSetUriSoapEnvelope(escapedUri: String, escapedMetadata: String): String {
+        return """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <CurrentURI>$escapedUri</CurrentURI>
+      <CurrentURIMetaData>$escapedMetadata</CurrentURIMetaData>
+    </u:SetAVTransportURI>
+  </s:Body>
+</s:Envelope>""".trimIndent()
     }
 
     suspend fun play(device: DlnaDevice): Result<Boolean> = withContext(Dispatchers.IO) {
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <Speed>1</Speed>
-                </u:Play>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <Speed>1</Speed>
+    </u:Play>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(device.avTransportControlUrl, "urn:schemas-upnp-org:service:AVTransport:1", "Play", body)
     }
 
     suspend fun pause(device: DlnaDevice): Result<Boolean> = withContext(Dispatchers.IO) {
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Pause xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:Pause>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:Pause xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+    </u:Pause>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(device.avTransportControlUrl, "urn:schemas-upnp-org:service:AVTransport:1", "Pause", body)
     }
 
     suspend fun stop(device: DlnaDevice): Result<Boolean> = withContext(Dispatchers.IO) {
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:Stop>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+    </u:Stop>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(device.avTransportControlUrl, "urn:schemas-upnp-org:service:AVTransport:1", "Stop", body)
     }
 
     suspend fun seek(device: DlnaDevice, targetSeconds: Long): Result<Boolean> = withContext(Dispatchers.IO) {
         val targetTime = formatToRelTime(targetSeconds)
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Seek xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <Unit>REL_TIME</Unit>
-                  <Target>$targetTime</Target>
-                </u:Seek>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:Seek xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <Unit>REL_TIME</Unit>
+      <Target>$targetTime</Target>
+    </u:Seek>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(device.avTransportControlUrl, "urn:schemas-upnp-org:service:AVTransport:1", "Seek", body)
     }
 
     suspend fun getPositionInfo(device: DlnaDevice): PositionInfo? = withContext(Dispatchers.IO) {
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:GetPositionInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                </u:GetPositionInfo>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:GetPositionInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+    </u:GetPositionInfo>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         val response = executeSoapCall(device.avTransportControlUrl, "urn:schemas-upnp-org:service:AVTransport:1", "GetPositionInfo", body)
         if (response != null) {
@@ -372,37 +446,33 @@ class DlnaController(private val context: Context) {
     }
 
     suspend fun setVolume(device: DlnaDevice, desiredVolume: Int): Result<Boolean> = withContext(Dispatchers.IO) {
-        val controlUrl = device.renderingControlUrl ?: "${device.host}/upnp/control/RenderingControl1"
+        val controlUrl = device.renderingControlUrl ?: return@withContext Result.failure(Exception("Device has no RenderingControl"))
         val clamped = desiredVolume.coerceIn(0, 100)
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                  <InstanceID>0</InstanceID>
-                  <Channel>Master</Channel>
-                  <DesiredVolume>$clamped</DesiredVolume>
-                </u:SetVolume>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <InstanceID>0</InstanceID>
+      <Channel>Master</Channel>
+      <DesiredVolume>$clamped</DesiredVolume>
+    </u:SetVolume>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:RenderingControl:1", "SetVolume", body)
     }
 
     suspend fun getVolume(device: DlnaDevice): Int? = withContext(Dispatchers.IO) {
         val controlUrl = device.renderingControlUrl ?: return@withContext null
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                  <InstanceID>0</InstanceID>
-                  <Channel>Master</Channel>
-                </u:GetVolume>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <InstanceID>0</InstanceID>
+      <Channel>Master</Channel>
+    </u:GetVolume>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         val response = executeSoapCall(controlUrl, "urn:schemas-upnp-org:service:RenderingControl:1", "GetVolume", body)
         if (response != null) {
@@ -416,35 +486,31 @@ class DlnaController(private val context: Context) {
     suspend fun setMute(device: DlnaDevice, mute: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
         val controlUrl = device.renderingControlUrl ?: return@withContext Result.failure(Exception("Device has no RenderingControl"))
         val desiredMute = if (mute) "1" else "0"
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:SetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                  <InstanceID>0</InstanceID>
-                  <Channel>Master</Channel>
-                  <DesiredMute>$desiredMute</DesiredMute>
-                </u:SetMute>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <InstanceID>0</InstanceID>
+      <Channel>Master</Channel>
+      <DesiredMute>$desiredMute</DesiredMute>
+    </u:SetMute>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:RenderingControl:1", "SetMute", body)
     }
 
     suspend fun getMute(device: DlnaDevice): Boolean? = withContext(Dispatchers.IO) {
         val controlUrl = device.renderingControlUrl ?: return@withContext null
-        val body = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:GetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-                  <InstanceID>0</InstanceID>
-                  <Channel>Master</Channel>
-                </u:GetMute>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:GetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <InstanceID>0</InstanceID>
+      <Channel>Master</Channel>
+    </u:GetMute>
+  </s:Body>
+</s:Envelope>""".trimIndent()
 
         val response = executeSoapCall(controlUrl, "urn:schemas-upnp-org:service:RenderingControl:1", "GetMute", body)
         if (response != null) {
@@ -462,11 +528,27 @@ class DlnaController(private val context: Context) {
         soapBody: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val responseString = executeSoapCall(controlUrl, serviceType, action, soapBody)
-            if (responseString != null) {
+            val mediaType = "text/xml; charset=\"utf-8\"".toMediaType()
+            val request = Request.Builder()
+                .url(controlUrl)
+                .header("SOAPAction", "\"$serviceType#$action\"")
+                .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .post(soapBody.toRequestBody(mediaType))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (response.isSuccessful) {
                 Result.success(true)
             } else {
-                Result.failure(Exception("SOAP $action failed"))
+                val errBody = try { response.body?.string() ?: "" } catch (e: Exception) { "" }
+                val upnpDesc = parseXmlTagValue(errBody, "errorDescription")
+                val upnpCode = parseXmlTagValue(errBody, "errorCode")
+                val message = when {
+                    !upnpDesc.isNullOrBlank() -> "UPnP Error $upnpCode: $upnpDesc"
+                    !upnpCode.isNullOrBlank() -> "UPnP Error $upnpCode"
+                    else -> "HTTP ${response.code}"
+                }
+                Result.failure(Exception(message))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -497,6 +579,15 @@ class DlnaController(private val context: Context) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun xmlEscape(str: String): String {
+        return str
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
     }
 
     private fun parseXmlTagValue(xml: String, tagName: String): String? {
@@ -537,15 +628,15 @@ class DlnaController(private val context: Context) {
         val isAudio = item.type.equals("Audio", ignoreCase = true)
         val upnpClass = if (isAudio) "object.item.audioItem.musicTrack" else "object.item.videoItem.movie"
         val mimeType = if (isAudio) "audio/mp3" else "video/mp4"
+        val cleanTitle = item.name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        val escapedMediaUrl = xmlEscape(mediaUrl)
 
-        return """
-            <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
-              <item id="1" parentID="0" restricted="1">
-                <dc:title>${item.name.replace("<", "&lt;").replace(">", "&gt;")}</dc:title>
-                <upnp:class>$upnpClass</upnp:class>
-                <res protocolInfo="http-get:*:$mimeType:*">$mediaUrl</res>
-              </item>
-            </DIDL-Lite>
-        """.trimIndent()
+        return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <item id="1" parentID="0" restricted="1">
+    <dc:title>$cleanTitle</dc:title>
+    <upnp:class>$upnpClass</upnp:class>
+    <res protocolInfo="http-get:*:$mimeType:*">$escapedMediaUrl</res>
+  </item>
+</DIDL-Lite>"""
     }
 }

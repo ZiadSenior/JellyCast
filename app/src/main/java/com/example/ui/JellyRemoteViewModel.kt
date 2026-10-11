@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.DlnaDevice
@@ -275,10 +276,22 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun scanDlnaDevices() {
+        val serverHost = try {
+            java.net.URL(_uiState.value.serverUrl).host
+        } catch (e: Exception) {
+            ""
+        }
+        val ignored = setOfNotNull(
+            "192.168.1.1",
+            "192.168.0.1",
+            "10.0.0.1",
+            serverHost.takeIf { it.isNotBlank() }
+        )
+
         viewModelScope.launch {
             _uiState.update { it.copy(isScanningDevices = true) }
-            // Query local network SSDP for real DLNA renderers
-            val realDevices = dlnaController.discoverLocalDevices(timeoutMs = 3500)
+            // Query local network SSDP for real DLNA renderers, ignoring router and Jellyfin server
+            val realDevices = dlnaController.discoverLocalDevices(timeoutMs = 3500, ignoredHosts = ignored)
             
             _uiState.update {
                 it.copy(
@@ -376,15 +389,17 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             val setUriResult = dlnaController.setAvTransportUri(targetDevice, streamUrl, item)
             if (setUriResult.isFailure) {
                 _uiState.update {
-                    it.copy(toastMessage = "Could not start casting: ${setUriResult.exceptionOrNull()?.message}")
+                    it.copy(
+                        toastMessage = "Could not start casting: ${setUriResult.exceptionOrNull()?.message}",
+                        playbackStatus = it.playbackStatus.copy(state = TransportState.ERROR)
+                    )
                 }
+                return@launch
             }
             delay(400)
             val playResult = dlnaController.play(targetDevice)
             if (playResult.isFailure) {
-                _uiState.update {
-                    it.copy(toastMessage = "Play command warning: ${playResult.exceptionOrNull()?.message}")
-                }
+                Log.w("JellyRemoteViewModel", "Play command result: ${playResult.exceptionOrNull()?.message}")
             }
 
             _uiState.update {
