@@ -3,27 +3,27 @@ package com.example.data.model
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinAuthRequest(
     @Json(name = "Username") val username: String,
     @Json(name = "Pw") val pw: String,
     @Json(name = "Password") val password: String = pw
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinUserDto(
     @Json(name = "Id") val id: String? = null,
     @Json(name = "Name") val name: String? = null,
     @Json(name = "ServerId") val serverId: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinSessionInfoDto(
     @Json(name = "UserId") val userId: String? = null,
     @Json(name = "UserName") val userName: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinAuthResponse(
     @Json(name = "AccessToken") val accessToken: String?,
     @Json(name = "ServerId") val serverId: String?,
@@ -31,13 +31,13 @@ data class JellyfinAuthResponse(
     @Json(name = "SessionInfo") val sessionInfo: JellyfinSessionInfoDto? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinViewsResponse(
     @Json(name = "Items") val items: List<JellyfinLibraryItemDto>?,
     @Json(name = "TotalRecordCount") val totalRecordCount: Int? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinLibraryItemDto(
     @Json(name = "Id") val id: String,
     @Json(name = "Name") val name: String,
@@ -45,13 +45,13 @@ data class JellyfinLibraryItemDto(
     @Json(name = "Type") val type: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinItemsResponse(
     @Json(name = "Items") val items: List<JellyfinMediaItemDto>?,
     @Json(name = "TotalRecordCount") val totalRecordCount: Int? = null
 )
 
-@JsonClass(generateAdapter = true)
+@JsonClass(generateAdapter = false)
 data class JellyfinMediaItemDto(
     @Json(name = "Id") val id: String,
     @Json(name = "Name") val name: String,
