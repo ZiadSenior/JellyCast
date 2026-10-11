@@ -60,14 +60,13 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk build-artifacts/JellyCast-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk build-artifacts/JellyScribe.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: JellyCast-APK
-          path: build-artifacts/JellyCast-debug.apk
-          archive: false
+          name: JellyScribe-APK
+          path: build-artifacts/JellyScribe.apk
           retention-days: 14
 
       - name: Publish Direct APK to GitHub Release
@@ -75,8 +74,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: "v1.0-latest"
-          name: "JellyCast Latest APK"
-          body: "Direct download of the compiled JellyCast Android APK. No unzipping required!"
-          files: build-artifacts/JellyCast-debug.apk
+          name: "JellyScribe Latest APK"
+          body: "Direct download of the compiled JellyScribe Android APK. No unzipping required!"
+          files: build-artifacts/JellyScribe.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
