@@ -47,14 +47,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                JellyCastApp()
+                JellyCastMainApp()
             }
         }
     }
 }
 
 @Composable
-fun JellyCastApp(viewModel: JellyRemoteViewModel = viewModel()) {
+fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 

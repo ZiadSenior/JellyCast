@@ -98,4 +98,56 @@ class JellyCastUnitTest {
         assertTrue(authWithToken.contains("Token=\"my_access_token_123\""))
         assertTrue(authWithToken.contains("Client=\"JellyCast\""))
     }
+
+    @Test
+    fun testMediaCacheManagerLibrariesAndItems() = kotlinx.coroutines.runBlocking {
+        val tempDir = java.nio.file.Files.createTempDirectory("jelly_cache_test").toFile()
+        try {
+            val cacheManager = com.example.data.cache.MediaCacheManager(cacheDirectory = tempDir)
+
+            // Test libraries caching
+            val testLibraries = listOf(
+                com.example.data.model.JellyfinLibrary(id = "lib-1", name = "Movies", collectionType = "movies"),
+                com.example.data.model.JellyfinLibrary(id = "lib-2", name = "TV Shows", collectionType = "tvshows")
+            )
+            cacheManager.saveLibraries(testLibraries)
+
+            val cachedLibs = cacheManager.getCachedLibraries()
+            assertNotNull(cachedLibs)
+            assertEquals(2, cachedLibs!!.size)
+            assertEquals("Movies", cachedLibs[0].name)
+
+            // Test series/movie items caching
+            val testItems = listOf(
+                com.example.data.model.JellyfinMediaItem(
+                    id = "item-101",
+                    name = "Interstellar",
+                    overview = "Space exploration",
+                    type = "Movie",
+                    productionYear = 2014,
+                    communityRating = 8.7f,
+                    runTimeTicks = 10000000L,
+                    genres = listOf("Sci-Fi", "Adventure")
+                )
+            )
+            cacheManager.saveMediaItems("lib-1", testItems)
+
+            val cachedItems = cacheManager.getCachedMediaItems("lib-1")
+            assertNotNull(cachedItems)
+            assertEquals(1, cachedItems!!.size)
+            assertEquals("Interstellar", cachedItems[0].name)
+
+            // Test individual item lookup
+            val singleItem = cacheManager.getCachedMediaItem("item-101")
+            assertNotNull(singleItem)
+            assertEquals("Interstellar", singleItem!!.name)
+
+            // Test cache clear
+            cacheManager.clear()
+            val afterClear = cacheManager.getCachedLibraries()
+            org.junit.Assert.assertNull(afterClear)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }

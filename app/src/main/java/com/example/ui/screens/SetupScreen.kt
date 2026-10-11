@@ -21,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Tv
@@ -64,7 +63,6 @@ import com.example.ui.theme.JellyIndigo
 import com.example.ui.theme.JellyViolet
 import com.example.ui.theme.SurfaceDark
 import com.example.ui.theme.SurfaceElevated
-import com.example.ui.theme.SurfaceVariantDark
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -293,43 +291,6 @@ fun SetupScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Connection Instructions Card
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(SurfaceVariantDark.copy(alpha = 0.5f))
-                .border(1.dp, SurfaceElevated, RoundedCornerShape(14.dp))
-                .padding(14.dp)
-        ) {
-            Row(verticalAlignment = Alignment.Top) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    tint = CastCyan,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Jellyfin & DLNA Setup",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "• Enter your Jellyfin server address (e.g. http://192.168.1.100:8096 or https://jellyfin.example.com).\n• Once connected, tap the Cast icon in the top header to discover or add your TV/speaker.\n• Select any movie or episode and press Play to cast with live remote & volume control.",
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(30.dp))
     }
 }

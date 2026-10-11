@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.cache.MediaCacheManager
 import com.example.data.model.DlnaDevice
 import com.example.data.model.DlnaPlaybackStatus
 import com.example.data.model.JellyfinLibrary
@@ -61,6 +62,7 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     private val prefs = application.getSharedPreferences("jellycast_prefs", Context.MODE_PRIVATE)
     private val apiClient = JellyfinApiClient()
     private val dlnaController = DlnaController(application)
+    private val cacheManager = MediaCacheManager(application)
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -87,6 +89,12 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                     isLoggedIn = true,
                     currentScreen = Screen.LIBRARIES
                 )
+            }
+            viewModelScope.launch {
+                val cached = cacheManager.getCachedLibraries()
+                if (!cached.isNullOrEmpty()) {
+                    _uiState.update { it.copy(libraries = cached) }
+                }
             }
             loadLibraries()
         } else {
@@ -186,6 +194,9 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     fun logout() {
         prefs.edit().clear().apply()
         stopPlayback()
+        viewModelScope.launch {
+            cacheManager.clear()
+        }
         _uiState.update {
             UiState(serverUrl = it.serverUrl, username = it.username)
         }
@@ -197,16 +208,29 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         val userId = state.userId ?: ""
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingLibraries = true) }
+            // Instant L1/L2 cache read for instant response
+            val cachedLibs = cacheManager.getCachedLibraries()
+            if (!cachedLibs.isNullOrEmpty()) {
+                _uiState.update { it.copy(libraries = cachedLibs, isLoadingLibraries = false) }
+            } else {
+                _uiState.update { it.copy(isLoadingLibraries = true) }
+            }
+
+            // Fresh background sync
             val res = apiClient.getLibraries(state.serverUrl, userId, token)
             res.onSuccess { libs ->
+                cacheManager.saveLibraries(libs)
                 _uiState.update { it.copy(libraries = libs, isLoadingLibraries = false) }
             }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isLoadingLibraries = false,
-                        toastMessage = "Failed loading libraries: ${err.message}"
-                    )
+                if (cachedLibs.isNullOrEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingLibraries = false,
+                            toastMessage = "Failed loading libraries: ${err.message}"
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoadingLibraries = false) }
                 }
             }
         }
@@ -229,22 +253,38 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         val userId = state.userId ?: ""
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingMedia = true) }
+            // Instant L1/L2 cache check
+            val cachedItems = cacheManager.getCachedMediaItems(libraryId)
+            if (!cachedItems.isNullOrEmpty()) {
+                _uiState.update { it.copy(mediaItems = cachedItems, isLoadingMedia = false) }
+            } else {
+                _uiState.update { it.copy(isLoadingMedia = true) }
+            }
+
+            // Fresh background fetch
             val res = apiClient.getItemsInLibrary(state.serverUrl, userId, token, libraryId)
             res.onSuccess { items ->
+                cacheManager.saveMediaItems(libraryId, items)
                 _uiState.update { it.copy(mediaItems = items, isLoadingMedia = false) }
             }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isLoadingMedia = false,
-                        toastMessage = "Could not load media items: ${err.message}"
-                    )
+                if (cachedItems.isNullOrEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMedia = false,
+                            toastMessage = "Could not load media items: ${err.message}"
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoadingMedia = false) }
                 }
             }
         }
     }
 
     fun selectMediaItem(item: JellyfinMediaItem) {
+        viewModelScope.launch {
+            cacheManager.saveMediaItem(item)
+        }
         _uiState.update {
             it.copy(
                 selectedMediaItem = item,
