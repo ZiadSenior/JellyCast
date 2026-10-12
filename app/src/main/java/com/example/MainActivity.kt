@@ -33,10 +33,12 @@ import com.example.ui.Screen
 import com.example.ui.components.CastDeviceDialog
 import com.example.ui.components.HeaderBar
 import com.example.ui.components.MiniPlayerBar
+import com.example.ui.screens.EpisodesScreen
 import com.example.ui.screens.LibrariesScreen
 import com.example.ui.screens.MediaDetailScreen
 import com.example.ui.screens.MediaListScreen
 import com.example.ui.screens.RemoteControlScreen
+import com.example.ui.screens.SeasonsScreen
 import com.example.ui.screens.SetupScreen
 import com.example.ui.theme.DeepVioletBg
 import com.example.ui.theme.MyApplicationTheme
@@ -155,6 +157,36 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
                                 token = uiState.accessToken,
                                 onSearchChange = { viewModel.updateSearchQuery(it) },
                                 onSelectItem = { item -> viewModel.selectMediaItem(item) }
+                            )
+                        }
+                    }
+
+                    Screen.SEASONS -> {
+                        val series = uiState.selectedSeries
+                        if (series != null) {
+                            SeasonsScreen(
+                                series = series,
+                                seasons = uiState.seasons,
+                                isLoading = uiState.isLoadingSeasons,
+                                serverUrl = uiState.serverUrl,
+                                token = uiState.accessToken,
+                                onSelectSeason = { season -> viewModel.selectSeason(season) }
+                            )
+                        }
+                    }
+
+                    Screen.EPISODES -> {
+                        val series = uiState.selectedSeries
+                        val season = uiState.selectedSeason
+                        if (series != null && season != null) {
+                            EpisodesScreen(
+                                series = series,
+                                season = season,
+                                episodes = uiState.episodes,
+                                isLoading = uiState.isLoadingEpisodes,
+                                serverUrl = uiState.serverUrl,
+                                token = uiState.accessToken,
+                                onSelectEpisode = { ep -> viewModel.selectMediaItem(ep) }
                             )
                         }
                     }

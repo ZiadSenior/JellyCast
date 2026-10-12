@@ -144,9 +144,21 @@ fun MediaDetailScreen(
                     color = TextPrimary
                 )
 
-                if (item.seriesName != null) {
+                val showSubtitle = when {
+                    item.seriesName != null && item.seasonName != null && item.indexNumber != null ->
+                        "${item.seriesName} • ${item.seasonName} • Episode ${item.indexNumber}"
+                    item.seriesName != null && item.indexNumber != null ->
+                        "${item.seriesName} • Episode ${item.indexNumber}"
+                    item.seriesName != null ->
+                        item.seriesName
+                    item.seasonName != null ->
+                        item.seasonName
+                    else -> null
+                }
+
+                if (showSubtitle != null) {
                     Text(
-                        text = item.seriesName,
+                        text = showSubtitle,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = JellyViolet

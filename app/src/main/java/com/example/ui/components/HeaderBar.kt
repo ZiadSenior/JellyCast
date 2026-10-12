@@ -152,6 +152,8 @@ fun HeaderBar(
                                 Screen.SETUP -> "Server Setup"
                                 Screen.LIBRARIES -> "Media Libraries"
                                 Screen.MEDIA_LIST -> "Library Catalog"
+                                Screen.SEASONS -> "Select Season"
+                                Screen.EPISODES -> "Select Episode"
                                 Screen.MEDIA_DETAIL -> "Media Overview"
                                 Screen.REMOTE_CONTROL -> "DLNA Remote"
                             },

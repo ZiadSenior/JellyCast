@@ -63,7 +63,12 @@ data class JellyfinMediaItemDto(
     @Json(name = "RunTimeTicks") val runTimeTicks: Long? = null,
     @Json(name = "Genres") val genres: List<String>? = null,
     @Json(name = "SeriesName") val seriesName: String? = null,
+    @Json(name = "SeriesId") val seriesId: String? = null,
+    @Json(name = "SeasonId") val seasonId: String? = null,
+    @Json(name = "SeasonName") val seasonName: String? = null,
     @Json(name = "EpisodeTitle") val episodeTitle: String? = null,
+    @Json(name = "IndexNumber") val indexNumber: Int? = null,
+    @Json(name = "ParentIndexNumber") val parentIndexNumber: Int? = null,
     @Json(name = "PrimaryImageAspectRatio") val primaryImageAspectRatio: Float? = null
 )
 
@@ -84,6 +89,11 @@ data class JellyfinMediaItem(
     val runTimeTicks: Long?,
     val genres: List<String>,
     val seriesName: String? = null,
+    val seriesId: String? = null,
+    val seasonId: String? = null,
+    val seasonName: String? = null,
+    val indexNumber: Int? = null,
+    val parentIndexNumber: Int? = null,
     val customPosterUrl: String? = null,
     val customBackdropUrl: String? = null,
     val customStreamUrl: String? = null

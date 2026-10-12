@@ -138,16 +138,27 @@ class JellyfinApiClient {
         serverUrl: String,
         userId: String,
         token: String,
-        parentId: String
+        parentId: String,
+        collectionType: String? = null
     ): Result<List<JellyfinMediaItem>> = withContext(Dispatchers.IO) {
         try {
             val service = getService(serverUrl)
             val authHeader = JellyfinApiService.buildAuthHeader(token)
 
+            // For tvshows libraries, we fetch Series and Movies so shows appear at the top level
+            // rather than raw mixed episodes
+            val itemTypes = when (collectionType?.lowercase()) {
+                "tvshows" -> "Series"
+                "movies" -> "Movie"
+                else -> null
+            }
+
             val response = if (userId.isNotBlank()) {
                 val primary = service.getItems(
                     userId = userId,
                     parentId = parentId,
+                    includeItemTypes = itemTypes,
+                    recursive = true,
                     authorization = authHeader,
                     xEmbyAuthorization = authHeader,
                     xEmbyToken = token,
@@ -156,6 +167,8 @@ class JellyfinApiClient {
                 if (primary.isSuccessful) primary else {
                     service.getItemsDirect(
                         parentId = parentId,
+                        includeItemTypes = itemTypes,
+                        recursive = true,
                         authorization = authHeader,
                         xEmbyAuthorization = authHeader,
                         xEmbyToken = token,
@@ -165,6 +178,8 @@ class JellyfinApiClient {
             } else {
                 service.getItemsDirect(
                     parentId = parentId,
+                    includeItemTypes = itemTypes,
+                    recursive = true,
                     authorization = authHeader,
                     xEmbyAuthorization = authHeader,
                     xEmbyToken = token,
@@ -183,7 +198,12 @@ class JellyfinApiClient {
                         communityRating = dto.communityRating,
                         runTimeTicks = dto.runTimeTicks,
                         genres = dto.genres ?: emptyList(),
-                        seriesName = dto.seriesName
+                        seriesName = dto.seriesName,
+                        seriesId = dto.seriesId,
+                        seasonId = dto.seasonId,
+                        seasonName = dto.seasonName,
+                        indexNumber = dto.indexNumber,
+                        parentIndexNumber = dto.parentIndexNumber
                     )
                 } ?: emptyList()
                 Result.success(items)
@@ -191,6 +211,103 @@ class JellyfinApiClient {
                 val errBody = try { response.errorBody()?.string() ?: "" } catch (e: Exception) { "" }
                 val msg = if (errBody.isNotBlank() && errBody.length < 200) errBody else "HTTP ${response.code()}: ${response.message()}"
                 Result.failure(Exception(msg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getSeasons(
+        serverUrl: String,
+        userId: String,
+        token: String,
+        seriesId: String
+    ): Result<List<JellyfinMediaItem>> = withContext(Dispatchers.IO) {
+        try {
+            val service = getService(serverUrl)
+            val authHeader = JellyfinApiService.buildAuthHeader(token)
+
+            val response = service.getSeasons(
+                seriesId = seriesId,
+                userId = userId.takeIf { it.isNotBlank() },
+                authorization = authHeader,
+                xEmbyAuthorization = authHeader,
+                xEmbyToken = token,
+                apiKey = token
+            )
+
+            if (response.isSuccessful) {
+                val items = response.body()?.items?.map { dto ->
+                    JellyfinMediaItem(
+                        id = dto.id,
+                        name = dto.name,
+                        overview = dto.overview ?: "",
+                        type = "Season",
+                        productionYear = dto.productionYear,
+                        communityRating = dto.communityRating,
+                        runTimeTicks = dto.runTimeTicks,
+                        genres = dto.genres ?: emptyList(),
+                        seriesName = dto.seriesName,
+                        seriesId = seriesId,
+                        seasonId = dto.id,
+                        seasonName = dto.name,
+                        indexNumber = dto.indexNumber
+                    )
+                } ?: emptyList()
+                Result.success(items)
+            } else {
+                val errBody = try { response.errorBody()?.string() ?: "" } catch (e: Exception) { "" }
+                Result.failure(Exception(if (errBody.isNotBlank()) errBody else "HTTP ${response.code()}: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getEpisodes(
+        serverUrl: String,
+        userId: String,
+        token: String,
+        seriesId: String,
+        seasonId: String? = null
+    ): Result<List<JellyfinMediaItem>> = withContext(Dispatchers.IO) {
+        try {
+            val service = getService(serverUrl)
+            val authHeader = JellyfinApiService.buildAuthHeader(token)
+
+            val response = service.getEpisodes(
+                seriesId = seriesId,
+                seasonId = seasonId,
+                userId = userId.takeIf { it.isNotBlank() },
+                authorization = authHeader,
+                xEmbyAuthorization = authHeader,
+                xEmbyToken = token,
+                apiKey = token
+            )
+
+            if (response.isSuccessful) {
+                val items = response.body()?.items?.map { dto ->
+                    JellyfinMediaItem(
+                        id = dto.id,
+                        name = dto.name,
+                        overview = dto.overview ?: "No overview available.",
+                        type = "Episode",
+                        productionYear = dto.productionYear,
+                        communityRating = dto.communityRating,
+                        runTimeTicks = dto.runTimeTicks,
+                        genres = dto.genres ?: emptyList(),
+                        seriesName = dto.seriesName,
+                        seriesId = seriesId,
+                        seasonId = seasonId ?: dto.seasonId,
+                        seasonName = dto.seasonName,
+                        indexNumber = dto.indexNumber,
+                        parentIndexNumber = dto.parentIndexNumber
+                    )
+                } ?: emptyList()
+                Result.success(items)
+            } else {
+                val errBody = try { response.errorBody()?.string() ?: "" } catch (e: Exception) { "" }
+                Result.failure(Exception(if (errBody.isNotBlank()) errBody else "HTTP ${response.code()}: ${response.message()}"))
             }
         } catch (e: Exception) {
             Result.failure(e)

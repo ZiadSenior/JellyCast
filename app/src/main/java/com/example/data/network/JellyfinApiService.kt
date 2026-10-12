@@ -67,7 +67,8 @@ interface JellyfinApiService {
     @GET("Users/{userId}/Items")
     suspend fun getItems(
         @Path("userId") userId: String,
-        @Query("parentId") parentId: String,
+        @Query("parentId") parentId: String? = null,
+        @Query("includeItemTypes") includeItemTypes: String? = null,
         @Query("fields") fields: String = DEFAULT_FIELDS,
         @Query("sortBy") sortBy: String = "SortName",
         @Query("recursive") recursive: Boolean = true,
@@ -82,10 +83,40 @@ interface JellyfinApiService {
      */
     @GET("Items")
     suspend fun getItemsDirect(
-        @Query("parentId") parentId: String,
+        @Query("parentId") parentId: String? = null,
+        @Query("includeItemTypes") includeItemTypes: String? = null,
         @Query("fields") fields: String = DEFAULT_FIELDS,
         @Query("sortBy") sortBy: String = "SortName",
         @Query("recursive") recursive: Boolean = true,
+        @Header("Authorization") authorization: String,
+        @Header("X-Emby-Authorization") xEmbyAuthorization: String,
+        @Header("X-Emby-Token") xEmbyToken: String,
+        @Query("api_key") apiKey: String
+    ): Response<JellyfinItemsResponse>
+
+    /**
+     * Fetch seasons for a given Series.
+     */
+    @GET("Shows/{seriesId}/Seasons")
+    suspend fun getSeasons(
+        @Path("seriesId") seriesId: String,
+        @Query("userId") userId: String? = null,
+        @Query("fields") fields: String = DEFAULT_FIELDS,
+        @Header("Authorization") authorization: String,
+        @Header("X-Emby-Authorization") xEmbyAuthorization: String,
+        @Header("X-Emby-Token") xEmbyToken: String,
+        @Query("api_key") apiKey: String
+    ): Response<JellyfinItemsResponse>
+
+    /**
+     * Fetch episodes for a given Series and Season.
+     */
+    @GET("Shows/{seriesId}/Episodes")
+    suspend fun getEpisodes(
+        @Path("seriesId") seriesId: String,
+        @Query("seasonId") seasonId: String? = null,
+        @Query("userId") userId: String? = null,
+        @Query("fields") fields: String = DEFAULT_FIELDS,
         @Header("Authorization") authorization: String,
         @Header("X-Emby-Authorization") xEmbyAuthorization: String,
         @Header("X-Emby-Token") xEmbyToken: String,
@@ -102,7 +133,7 @@ interface JellyfinApiService {
             "MediaBrowser Client=\"$CLIENT_NAME\", Device=\"$DEVICE_NAME\", DeviceId=\"$DEVICE_ID\", Version=\"$VERSION\""
 
         const val DEFAULT_FIELDS =
-            "Overview,PrimaryImageAspectRatio,Genres,CommunityRating,PremiereDate,RunTimeTicks,ProductionYear,MediaSources"
+            "Overview,PrimaryImageAspectRatio,Genres,CommunityRating,PremiereDate,RunTimeTicks,ProductionYear,MediaSources,IndexNumber,ParentIndexNumber,SeriesName,SeriesId,SeasonId,SeasonName"
 
         fun buildAuthHeader(token: String? = null): String {
             return if (!token.isNullOrBlank()) {

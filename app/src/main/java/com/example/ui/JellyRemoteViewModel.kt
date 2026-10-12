@@ -26,6 +26,8 @@ enum class Screen {
     SETUP,
     LIBRARIES,
     MEDIA_LIST,
+    SEASONS,
+    EPISODES,
     MEDIA_DETAIL,
     REMOTE_CONTROL
 }
@@ -48,6 +50,14 @@ data class UiState(
     val isLoadingMedia: Boolean = false,
     val searchQuery: String = "",
     val selectedMediaItem: JellyfinMediaItem? = null,
+
+    // Series hierarchy state
+    val selectedSeries: JellyfinMediaItem? = null,
+    val seasons: List<JellyfinMediaItem> = emptyList(),
+    val isLoadingSeasons: Boolean = false,
+    val selectedSeason: JellyfinMediaItem? = null,
+    val episodes: List<JellyfinMediaItem> = emptyList(),
+    val isLoadingEpisodes: Boolean = false,
 
     val isScanningDevices: Boolean = false,
     val discoveredDevices: List<DlnaDevice> = emptyList(),
@@ -241,16 +251,21 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             it.copy(
                 selectedLibrary = library,
                 currentScreen = Screen.MEDIA_LIST,
-                searchQuery = ""
+                searchQuery = "",
+                selectedSeries = null,
+                seasons = emptyList(),
+                selectedSeason = null,
+                episodes = emptyList()
             )
         }
-        loadMediaItems(library.id)
+        loadMediaItems(library)
     }
 
-    private fun loadMediaItems(libraryId: String) {
+    private fun loadMediaItems(library: JellyfinLibrary) {
         val state = _uiState.value
         val token = state.accessToken ?: return
         val userId = state.userId ?: ""
+        val libraryId = library.id
 
         viewModelScope.launch {
             // Instant L1/L2 cache check
@@ -262,7 +277,13 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             // Fresh background fetch
-            val res = apiClient.getItemsInLibrary(state.serverUrl, userId, token, libraryId)
+            val res = apiClient.getItemsInLibrary(
+                serverUrl = state.serverUrl,
+                userId = userId,
+                token = token,
+                parentId = libraryId,
+                collectionType = library.collectionType
+            )
             res.onSuccess { items ->
                 cacheManager.saveMediaItems(libraryId, items)
                 _uiState.update { it.copy(mediaItems = items, isLoadingMedia = false) }
@@ -285,11 +306,113 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             cacheManager.saveMediaItem(item)
         }
+        if (item.type.equals("Series", ignoreCase = true)) {
+            // User clicked on a TV Show -> drill down into its seasons
+            selectSeries(item)
+        } else if (item.type.equals("Season", ignoreCase = true)) {
+            // User clicked on a Season -> drill down into its episodes
+            selectSeason(item)
+        } else {
+            // Movie or Episode or other playable media -> view details
+            _uiState.update {
+                it.copy(
+                    selectedMediaItem = item,
+                    currentScreen = Screen.MEDIA_DETAIL
+                )
+            }
+        }
+    }
+
+    fun selectSeries(series: JellyfinMediaItem) {
         _uiState.update {
             it.copy(
-                selectedMediaItem = item,
-                currentScreen = Screen.MEDIA_DETAIL
+                selectedSeries = series,
+                currentScreen = Screen.SEASONS,
+                seasons = emptyList(),
+                selectedSeason = null,
+                episodes = emptyList(),
+                isLoadingSeasons = true
             )
+        }
+        loadSeasons(series.id)
+    }
+
+    fun selectSeason(season: JellyfinMediaItem) {
+        val series = _uiState.value.selectedSeries
+        _uiState.update {
+            it.copy(
+                selectedSeason = season,
+                currentScreen = Screen.EPISODES,
+                episodes = emptyList(),
+                isLoadingEpisodes = true
+            )
+        }
+        loadEpisodes(seriesId = series?.id ?: season.seriesId ?: season.id, seasonId = season.id)
+    }
+
+    fun loadSeasons(seriesId: String) {
+        val state = _uiState.value
+        val token = state.accessToken ?: return
+        val userId = state.userId ?: ""
+
+        viewModelScope.launch {
+            val cacheKey = "seasons_$seriesId"
+            val cached = cacheManager.getCachedMediaItems(cacheKey)
+            if (!cached.isNullOrEmpty()) {
+                _uiState.update { it.copy(seasons = cached, isLoadingSeasons = false) }
+            } else {
+                _uiState.update { it.copy(isLoadingSeasons = true) }
+            }
+
+            val res = apiClient.getSeasons(state.serverUrl, userId, token, seriesId)
+            res.onSuccess { seasons ->
+                cacheManager.saveMediaItems(cacheKey, seasons)
+                _uiState.update { it.copy(seasons = seasons, isLoadingSeasons = false) }
+            }.onFailure { err ->
+                if (cached.isNullOrEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingSeasons = false,
+                            toastMessage = "Could not load seasons: ${err.message}"
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoadingSeasons = false) }
+                }
+            }
+        }
+    }
+
+    fun loadEpisodes(seriesId: String, seasonId: String) {
+        val state = _uiState.value
+        val token = state.accessToken ?: return
+        val userId = state.userId ?: ""
+
+        viewModelScope.launch {
+            val cacheKey = "episodes_${seriesId}_$seasonId"
+            val cached = cacheManager.getCachedMediaItems(cacheKey)
+            if (!cached.isNullOrEmpty()) {
+                _uiState.update { it.copy(episodes = cached, isLoadingEpisodes = false) }
+            } else {
+                _uiState.update { it.copy(isLoadingEpisodes = true) }
+            }
+
+            val res = apiClient.getEpisodes(state.serverUrl, userId, token, seriesId, seasonId)
+            res.onSuccess { episodes ->
+                cacheManager.saveMediaItems(cacheKey, episodes)
+                _uiState.update { it.copy(episodes = episodes, isLoadingEpisodes = false) }
+            }.onFailure { err ->
+                if (cached.isNullOrEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingEpisodes = false,
+                            toastMessage = "Could not load episodes: ${err.message}"
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoadingEpisodes = false) }
+                }
+            }
         }
     }
 
@@ -298,8 +421,29 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             when (current.currentScreen) {
                 Screen.SETUP -> current
                 Screen.LIBRARIES -> current
-                Screen.MEDIA_LIST -> current.copy(currentScreen = Screen.LIBRARIES, selectedLibrary = null)
-                Screen.MEDIA_DETAIL -> current.copy(currentScreen = Screen.MEDIA_LIST, selectedMediaItem = null)
+                Screen.MEDIA_LIST -> current.copy(
+                    currentScreen = Screen.LIBRARIES,
+                    selectedLibrary = null
+                )
+                Screen.SEASONS -> current.copy(
+                    currentScreen = Screen.MEDIA_LIST,
+                    selectedSeries = null,
+                    seasons = emptyList()
+                )
+                Screen.EPISODES -> current.copy(
+                    currentScreen = Screen.SEASONS,
+                    selectedSeason = null,
+                    episodes = emptyList()
+                )
+                Screen.MEDIA_DETAIL -> {
+                    if (current.selectedSeason != null) {
+                        current.copy(currentScreen = Screen.EPISODES, selectedMediaItem = null)
+                    } else if (current.selectedSeries != null) {
+                        current.copy(currentScreen = Screen.SEASONS, selectedMediaItem = null)
+                    } else {
+                        current.copy(currentScreen = Screen.MEDIA_LIST, selectedMediaItem = null)
+                    }
+                }
                 Screen.REMOTE_CONTROL -> {
                     if (current.selectedMediaItem != null) {
                         current.copy(currentScreen = Screen.MEDIA_DETAIL)
