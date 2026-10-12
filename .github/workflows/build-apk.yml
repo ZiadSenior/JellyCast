@@ -69,6 +69,18 @@ jobs:
           path: build-artifacts/JellyCast.apk
           retention-days: 14
 
+      - name: Clean Up Legacy Release Assets
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v1.0-latest" >/dev/null 2>&1; then
+            for asset in $(gh release view "v1.0-latest" --json assets --jq '.assets[] | select(.name != "JellyCast.apk") | .name'); do
+              echo "Removing outdated release asset: $asset"
+              gh release delete-asset "v1.0-latest" "$asset" --yes || true
+            done
+          fi
+
       - name: Publish Direct APK to GitHub Release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
@@ -79,3 +91,4 @@ jobs:
           files: build-artifacts/JellyCast.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
