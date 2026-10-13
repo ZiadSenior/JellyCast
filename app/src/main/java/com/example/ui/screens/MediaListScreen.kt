@@ -184,7 +184,11 @@ fun MediaListScreen(
                         }
                     }
                 } else {
-                    items(filteredItems, key = { it.id }) { item ->
+                    items(
+                        items = filteredItems,
+                        key = { it.id },
+                        contentType = { "media_poster" }
+                    ) { item ->
                         MediaItemPosterCard(
                             item = item,
                             serverUrl = serverUrl,
@@ -198,6 +202,10 @@ fun MediaListScreen(
     }
 }
 
+private val PosterTopGradient = Brush.verticalGradient(
+    listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)
+)
+
 @Composable
 private fun MediaItemPosterCard(
     item: JellyfinMediaItem,
@@ -205,12 +213,14 @@ private fun MediaItemPosterCard(
     token: String?,
     onClick: () -> Unit
 ) {
-    val posterUrl = item.getPosterUrl(serverUrl, token)
+    val posterUrl = remember(item.id, serverUrl, token) {
+        item.getThumbnailPosterUrl(serverUrl, token)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("media_card_${item.id}")
     ) {
@@ -219,9 +229,9 @@ private fun MediaItemPosterCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(SurfaceDark)
-                .border(1.dp, SurfaceElevated, RoundedCornerShape(16.dp))
+                .border(1.dp, SurfaceElevated, RoundedCornerShape(14.dp))
         ) {
             AsyncImage(
                 model = posterUrl,
@@ -234,19 +244,15 @@ private fun MediaItemPosterCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
-                        )
-                    )
+                    .height(44.dp)
+                    .background(PosterTopGradient)
             )
 
             // Rating / Year Badges
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp),
+                    .padding(6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -254,26 +260,26 @@ private fun MediaItemPosterCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.65f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "${item.productionYear}",
+                            text = item.productionYear.toString(),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
                 } else {
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
                 }
 
                 if (item.communityRating != null) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.65f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -283,8 +289,12 @@ private fun MediaItemPosterCard(
                                 modifier = Modifier.size(11.dp)
                             )
                             Spacer(modifier = Modifier.width(2.dp))
+                            val ratingFormatted = remember(item.communityRating) {
+                                val rounded = ((item.communityRating * 10).toInt()) / 10f
+                                rounded.toString()
+                            }
                             Text(
-                                text = String.format("%.1f", item.communityRating),
+                                text = ratingFormatted,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -299,10 +309,10 @@ private fun MediaItemPosterCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp)
+                        .padding(6.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.7f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = item.formattedDuration,
@@ -325,12 +335,12 @@ private fun MediaItemPosterCard(
             color = TextPrimary
         )
 
-        val subtitle = if (item.seriesName != null) {
-            item.seriesName
-        } else if (item.genres.isNotEmpty()) {
-            item.genres.take(2).joinToString(", ")
-        } else {
-            item.type
+        val subtitle = remember(item.seriesName, item.genres, item.type) {
+            when {
+                item.seriesName != null -> item.seriesName
+                item.genres.isNotEmpty() -> item.genres.take(2).joinToString(", ")
+                else -> item.type
+            }
         }
 
         Text(

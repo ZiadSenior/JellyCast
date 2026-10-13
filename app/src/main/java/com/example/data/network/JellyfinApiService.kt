@@ -3,6 +3,7 @@ package com.example.data.network
 import com.example.data.model.JellyfinAuthRequest
 import com.example.data.model.JellyfinAuthResponse
 import com.example.data.model.JellyfinItemsResponse
+import com.example.data.model.JellyfinMediaItemDto
 import com.example.data.model.JellyfinViewsResponse
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -123,6 +124,31 @@ interface JellyfinApiService {
         @Query("api_key") apiKey: String
     ): Response<JellyfinItemsResponse>
 
+    /**
+     * Fetch a single item with full metadata including media sources & audio/subtitle streams.
+     */
+    @GET("Users/{userId}/Items/{itemId}")
+    suspend fun getItem(
+        @Path("userId") userId: String,
+        @Path("itemId") itemId: String,
+        @Header("Authorization") authorization: String,
+        @Header("X-Emby-Authorization") xEmbyAuthorization: String,
+        @Header("X-Emby-Token") xEmbyToken: String,
+        @Query("api_key") apiKey: String
+    ): Response<JellyfinMediaItemDto>
+
+    /**
+     * Direct item fetch without user ID.
+     */
+    @GET("Items/{itemId}")
+    suspend fun getItemDirect(
+        @Path("itemId") itemId: String,
+        @Header("Authorization") authorization: String,
+        @Header("X-Emby-Authorization") xEmbyAuthorization: String,
+        @Header("X-Emby-Token") xEmbyToken: String,
+        @Query("api_key") apiKey: String
+    ): Response<JellyfinMediaItemDto>
+
     companion object {
         const val CLIENT_NAME = "JellyCast"
         const val DEVICE_NAME = "Android"
@@ -133,7 +159,7 @@ interface JellyfinApiService {
             "MediaBrowser Client=\"$CLIENT_NAME\", Device=\"$DEVICE_NAME\", DeviceId=\"$DEVICE_ID\", Version=\"$VERSION\""
 
         const val DEFAULT_FIELDS =
-            "Overview,PrimaryImageAspectRatio,Genres,CommunityRating,PremiereDate,RunTimeTicks,ProductionYear,MediaSources,IndexNumber,ParentIndexNumber,SeriesName,SeriesId,SeasonId,SeasonName"
+            "Overview,PrimaryImageAspectRatio,Genres,CommunityRating,PremiereDate,RunTimeTicks,ProductionYear,MediaSources,MediaStreams,IndexNumber,ParentIndexNumber,SeriesName,SeriesId,SeasonId,SeasonName"
 
         fun buildAuthHeader(token: String? = null): String {
             return if (!token.isNullOrBlank()) {

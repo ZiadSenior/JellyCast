@@ -223,7 +223,11 @@ fun LibrariesScreen(
                     }
                 }
             } else {
-                items(libraries, key = { it.id }) { lib ->
+                items(
+                    items = libraries,
+                    key = { it.id },
+                    contentType = { "library_card" }
+                ) { lib ->
                     LibraryCard(library = lib, onClick = { onSelectLibrary(lib) })
                 }
             }

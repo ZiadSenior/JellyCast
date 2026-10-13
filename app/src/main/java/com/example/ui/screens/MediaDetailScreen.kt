@@ -47,9 +47,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import coil.compose.AsyncImage
+import com.example.data.model.AudioTranscodeMode
 import com.example.data.model.DlnaDevice
 import com.example.data.model.JellyfinMediaItem
+import com.example.data.model.MediaTrackInfo
 import com.example.ui.theme.CastCyan
 import com.example.ui.theme.CastGreenActive
 import com.example.ui.theme.DeepVioletBg
@@ -68,9 +84,20 @@ fun MediaDetailScreen(
     connectedDevice: DlnaDevice?,
     serverUrl: String,
     token: String?,
+    audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AAC,
+    selectedAudioTrackIndex: Int? = null,
+    selectedSubtitleTrackIndex: Int? = null,
+    burnSubtitles: Boolean = true,
+    onAudioModeChange: (AudioTranscodeMode) -> Unit = {},
+    onAudioTrackChange: (Int?) -> Unit = {},
+    onSubtitleTrackChange: (Int?) -> Unit = {},
+    onBurnSubtitlesChange: (Boolean) -> Unit = {},
     onPlayClick: () -> Unit,
     onOpenCastScanner: () -> Unit
 ) {
+    var showSubtitleDropdown by remember { mutableStateOf(false) }
+    var showAudioDropdown by remember { mutableStateOf(false) }
+
     val backdropUrl = item.getBackdropUrl(serverUrl, token)
     val posterUrl = item.getPosterUrl(serverUrl, token)
 
@@ -248,6 +275,330 @@ fun MediaDetailScreen(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = CastCyan
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // DLNA Streaming & Transcode Settings Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .testTag("dlna_stream_options_card"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = SurfaceDark
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceElevated)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = CastCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "DLNA Stream Options",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimary
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(CastCyan.copy(alpha = 0.15f))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = audioTranscodeMode.displayName,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CastCyan
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Audio Transcode Mode Selector
+                        Text(
+                            text = "Audio Format",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = audioTranscodeMode.description,
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            lineHeight = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            AudioTranscodeMode.values().forEach { mode ->
+                                val isSelected = audioTranscodeMode == mode
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onAudioModeChange(mode) },
+                                    label = {
+                                        Text(
+                                            text = mode.displayName,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    leadingIcon = if (isSelected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = SurfaceVariantDark,
+                                        labelColor = TextSecondary,
+                                        selectedContainerColor = CastCyan.copy(alpha = 0.2f),
+                                        selectedLabelColor = CastCyan,
+                                        selectedLeadingIconColor = CastCyan
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = isSelected,
+                                        borderColor = SurfaceElevated,
+                                        selectedBorderColor = CastCyan
+                                    ),
+                                    modifier = Modifier.testTag("audio_mode_chip_${mode.name.lowercase()}")
+                                )
+                            }
+                        }
+
+                        // Audio Track Selector if multiple audio tracks
+                        if (item.audioTracks.size > 1) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val currentAudioTrack = item.audioTracks.find { it.index == selectedAudioTrackIndex }
+                                ?: item.audioTracks.firstOrNull()
+
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(SurfaceVariantDark)
+                                        .clickable { showAudioDropdown = true }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.VolumeUp,
+                                            contentDescription = null,
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Audio: ${currentAudioTrack?.title ?: "Default"}",
+                                            fontSize = 11.sp,
+                                            color = TextPrimary
+                                        )
+                                    }
+                                    Text(
+                                        text = "Change",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = CastCyan
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showAudioDropdown,
+                                    onDismissRequest = { showAudioDropdown = false }
+                                ) {
+                                    item.audioTracks.forEach { track ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = track.title + if (track.isDefault) " (Default)" else "",
+                                                    fontSize = 12.sp
+                                                )
+                                            },
+                                            onClick = {
+                                                onAudioTrackChange(track.index)
+                                                showAudioDropdown = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SurfaceElevated))
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Subtitle Section (Burn-in for DLNA)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Subtitles,
+                                    contentDescription = null,
+                                    tint = CastCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Subtitles",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+                            }
+                            if (selectedSubtitleTrackIndex != null && burnSubtitles) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(CastGreenActive.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "Burned into Video",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CastGreenActive
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "TVs cannot parse external subtitles over DLNA. Jellyfin will burn them into the video frames.",
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            lineHeight = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Subtitle Track Picker
+                        val currentSubTrack = item.subtitleTracks.find { it.index == selectedSubtitleTrackIndex }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(SurfaceVariantDark)
+                                    .clickable { showSubtitleDropdown = true }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = currentSubTrack?.title ?: if (selectedSubtitleTrackIndex == null) "Off (No Subtitles)" else "Subtitle #${selectedSubtitleTrackIndex}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (selectedSubtitleTrackIndex != null) CastCyan else TextSecondary
+                                )
+                                Text(
+                                    text = "Select Track",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = CastCyan
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showSubtitleDropdown,
+                                onDismissRequest = { showSubtitleDropdown = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Off (No Subtitles)", fontSize = 12.sp) },
+                                    onClick = {
+                                        onSubtitleTrackChange(null)
+                                        showSubtitleDropdown = false
+                                    }
+                                )
+                                item.subtitleTracks.forEach { track ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = track.title + if (track.isDefault) " (Default)" else "",
+                                                fontSize = 12.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            onSubtitleTrackChange(track.index)
+                                            showSubtitleDropdown = false
+                                        }
+                                    )
+                                }
+                                if (item.subtitleTracks.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("No embedded subtitles found", fontSize = 12.sp, color = TextMuted) },
+                                        onClick = { showSubtitleDropdown = false }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Burn-in Toggle Switch (shown when a subtitle is chosen)
+                        if (selectedSubtitleTrackIndex != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Burn into Video (DLNA)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "Hardcodes subtitle onto video stream",
+                                        fontSize = 10.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = burnSubtitles,
+                                    onCheckedChange = { onBurnSubtitlesChange(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = DeepVioletBg,
+                                        checkedTrackColor = CastGreenActive,
+                                        uncheckedThumbColor = TextMuted,
+                                        uncheckedTrackColor = SurfaceElevated
+                                    )
                                 )
                             }
                         }

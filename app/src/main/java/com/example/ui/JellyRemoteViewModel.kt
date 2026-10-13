@@ -22,6 +22,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+import androidx.compose.runtime.Immutable
+import com.example.data.model.AudioTranscodeMode
+import com.example.data.model.MediaTrackInfo
+
 enum class Screen {
     SETUP,
     LIBRARIES,
@@ -32,6 +36,7 @@ enum class Screen {
     REMOTE_CONTROL
 }
 
+@Immutable
 data class UiState(
     val currentScreen: Screen = Screen.SETUP,
     val serverUrl: String = "http://192.168.1.100:8096",
@@ -51,6 +56,12 @@ data class UiState(
     val searchQuery: String = "",
     val selectedMediaItem: JellyfinMediaItem? = null,
 
+    // Audio & Subtitle stream options
+    val audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AAC,
+    val selectedAudioTrackIndex: Int? = null,
+    val selectedSubtitleTrackIndex: Int? = null,
+    val burnSubtitles: Boolean = true,
+
     // Series hierarchy state
     val selectedSeries: JellyfinMediaItem? = null,
     val seasons: List<JellyfinMediaItem> = emptyList(),
@@ -64,7 +75,7 @@ data class UiState(
     val connectedDevice: DlnaDevice? = null,
     val showDeviceDialog: Boolean = false,
 
-    val playbackStatus: DlnaPlaybackStatus = DlnaPlaybackStatus(),
+    val isPlaybackActive: Boolean = false,
     val toastMessage: String? = null
 )
 
@@ -77,6 +88,9 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    private val _playbackStatus = MutableStateFlow(DlnaPlaybackStatus())
+    val playbackStatus: StateFlow<DlnaPlaybackStatus> = _playbackStatus.asStateFlow()
+
     private var playbackTickerJob: Job? = null
 
     init {
@@ -88,6 +102,9 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         val savedUser = prefs.getString("username", "") ?: ""
         val savedToken = prefs.getString("token", null)
         val savedUserId = prefs.getString("user_id", null)
+        val savedAudioModeStr = prefs.getString("audio_transcode_mode", AudioTranscodeMode.AAC.name) ?: AudioTranscodeMode.AAC.name
+        val savedAudioMode = try { AudioTranscodeMode.valueOf(savedAudioModeStr) } catch (e: Exception) { AudioTranscodeMode.AAC }
+        val savedBurnSubtitles = prefs.getBoolean("burn_subtitles", true)
 
         if (!savedToken.isNullOrEmpty() && !savedUserId.isNullOrEmpty()) {
             _uiState.update {
@@ -96,6 +113,8 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                     username = savedUser,
                     accessToken = savedToken,
                     userId = savedUserId,
+                    audioTranscodeMode = savedAudioMode,
+                    burnSubtitles = savedBurnSubtitles,
                     isLoggedIn = true,
                     currentScreen = Screen.LIBRARIES
                 )
@@ -109,9 +128,32 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             loadLibraries()
         } else {
             _uiState.update {
-                it.copy(serverUrl = savedServer, username = savedUser)
+                it.copy(
+                    serverUrl = savedServer,
+                    username = savedUser,
+                    audioTranscodeMode = savedAudioMode,
+                    burnSubtitles = savedBurnSubtitles
+                )
             }
         }
+    }
+
+    fun setAudioTranscodeMode(mode: AudioTranscodeMode) {
+        prefs.edit().putString("audio_transcode_mode", mode.name).apply()
+        _uiState.update { it.copy(audioTranscodeMode = mode) }
+    }
+
+    fun setSelectedAudioTrack(index: Int?) {
+        _uiState.update { it.copy(selectedAudioTrackIndex = index) }
+    }
+
+    fun setSelectedSubtitleTrack(index: Int?) {
+        _uiState.update { it.copy(selectedSubtitleTrackIndex = index) }
+    }
+
+    fun setBurnSubtitles(burn: Boolean) {
+        prefs.edit().putBoolean("burn_subtitles", burn).apply()
+        _uiState.update { it.copy(burnSubtitles = burn) }
     }
 
     fun updateServerUrl(url: String) {
@@ -314,11 +356,40 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             selectSeason(item)
         } else {
             // Movie or Episode or other playable media -> view details
+            val defaultAudio = item.audioTracks.firstOrNull { it.isDefault }?.index ?: item.audioTracks.firstOrNull()?.index
+            val defaultSub = item.subtitleTracks.firstOrNull { it.isDefault }?.index
             _uiState.update {
                 it.copy(
                     selectedMediaItem = item,
+                    selectedAudioTrackIndex = defaultAudio,
+                    selectedSubtitleTrackIndex = defaultSub,
                     currentScreen = Screen.MEDIA_DETAIL
                 )
+            }
+
+            // Fetch enriched track metadata (audio codecs & subtitles) from server if not already present
+            val state = _uiState.value
+            val token = state.accessToken
+            if (!token.isNullOrBlank() && (item.audioTracks.isEmpty() || item.subtitleTracks.isEmpty())) {
+                viewModelScope.launch {
+                    val detailsRes = apiClient.getItemDetails(state.serverUrl, state.userId ?: "", token, item.id)
+                    detailsRes.onSuccess { detailedItem ->
+                        _uiState.update { current ->
+                            if (current.selectedMediaItem?.id == detailedItem.id) {
+                                val audio = current.selectedAudioTrackIndex
+                                    ?: detailedItem.audioTracks.firstOrNull { it.isDefault }?.index
+                                    ?: detailedItem.audioTracks.firstOrNull()?.index
+                                val sub = current.selectedSubtitleTrackIndex
+                                    ?: detailedItem.subtitleTracks.firstOrNull { it.isDefault }?.index
+                                current.copy(
+                                    selectedMediaItem = detailedItem,
+                                    selectedAudioTrackIndex = audio,
+                                    selectedSubtitleTrackIndex = sub
+                                )
+                            } else current
+                        }
+                    }
+                }
             }
         }
     }
@@ -514,12 +585,10 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             val vol = dlnaController.getVolume(device)
             val mute = dlnaController.getMute(device)
             if (vol != null || mute != null) {
-                _uiState.update {
+                _playbackStatus.update {
                     it.copy(
-                        playbackStatus = it.playbackStatus.copy(
-                            volume = vol ?: it.playbackStatus.volume,
-                            isMuted = mute ?: it.playbackStatus.isMuted
-                        )
+                        volume = vol ?: it.volume,
+                        isMuted = mute ?: it.isMuted
                     )
                 }
             }
@@ -551,21 +620,29 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         val state = _uiState.value
-        val streamUrl = item.getDirectStreamUrl(state.serverUrl, state.accessToken)
+        val streamUrl = item.getPlaybackStreamUrl(
+            serverUrl = state.serverUrl,
+            token = state.accessToken,
+            audioMode = state.audioTranscodeMode,
+            selectedSubtitleIndex = state.selectedSubtitleTrackIndex,
+            burnSubtitles = state.burnSubtitles,
+            selectedAudioIndex = state.selectedAudioTrackIndex
+        )
         val initialDuration = item.durationSeconds.takeIf { it > 0 } ?: 0L
 
         viewModelScope.launch {
+            _playbackStatus.value = DlnaPlaybackStatus(
+                state = TransportState.BUFFERING,
+                currentItem = item,
+                positionSeconds = 0L,
+                durationSeconds = initialDuration,
+                volume = _playbackStatus.value.volume,
+                isMuted = _playbackStatus.value.isMuted
+            )
             _uiState.update {
                 it.copy(
-                    playbackStatus = DlnaPlaybackStatus(
-                        state = TransportState.BUFFERING,
-                        currentItem = item,
-                        positionSeconds = 0L,
-                        durationSeconds = initialDuration,
-                        volume = it.playbackStatus.volume,
-                        isMuted = it.playbackStatus.isMuted
-                    ),
-                    currentScreen = Screen.REMOTE_CONTROL
+                    currentScreen = Screen.REMOTE_CONTROL,
+                    isPlaybackActive = true
                 )
             }
 
@@ -575,9 +652,10 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                 _uiState.update {
                     it.copy(
                         toastMessage = "Could not start casting: ${setUriResult.exceptionOrNull()?.message}",
-                        playbackStatus = it.playbackStatus.copy(state = TransportState.ERROR)
+                        isPlaybackActive = false
                     )
                 }
+                _playbackStatus.update { it.copy(state = TransportState.ERROR) }
                 return@launch
             }
             delay(400)
@@ -586,16 +664,43 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                 Log.w("JellyRemoteViewModel", "Play command result: ${playResult.exceptionOrNull()?.message}")
             }
 
-            _uiState.update {
-                it.copy(
-                    playbackStatus = it.playbackStatus.copy(
-                        state = TransportState.PLAYING
-                    )
-                )
+            _playbackStatus.update {
+                it.copy(state = TransportState.PLAYING)
             }
             startPlaybackTicker()
         }
     }
+
+    /**
+     * Re-applies stream URL with updated audio transcode or subtitle burn settings to current playback.
+     */
+    fun applyPlaybackSettings() {
+        val currentItem = _playbackStatus.value.currentItem ?: _uiState.value.selectedMediaItem
+        val targetDevice = _uiState.value.connectedDevice
+        if (currentItem != null && targetDevice != null) {
+            val state = _uiState.value
+            val streamUrl = currentItem.getPlaybackStreamUrl(
+                serverUrl = state.serverUrl,
+                token = state.accessToken,
+                audioMode = state.audioTranscodeMode,
+                selectedSubtitleIndex = state.selectedSubtitleTrackIndex,
+                burnSubtitles = state.burnSubtitles,
+                selectedAudioIndex = state.selectedAudioTrackIndex
+            )
+            viewModelScope.launch {
+                val subNotice = if (state.selectedSubtitleTrackIndex != null && state.burnSubtitles) " with burned subtitles" else ""
+                _uiState.update {
+                    it.copy(
+                        toastMessage = "Updating stream on ${targetDevice.friendlyName} (${state.audioTranscodeMode.displayName}$subNotice)..."
+                    )
+                }
+                dlnaController.setAvTransportUri(targetDevice, streamUrl, currentItem)
+                delay(350)
+                dlnaController.play(targetDevice)
+            }
+        }
+    }
+
 
     private fun startPlaybackTicker() {
         playbackTickerJob?.cancel()
@@ -605,18 +710,16 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                 delay(1000)
                 counter++
                 val device = _uiState.value.connectedDevice
-                val current = _uiState.value.playbackStatus
+                val current = _playbackStatus.value
 
                 // Every 3 seconds, sync live position info from the DLNA device
                 if (device != null && counter % 3 == 0) {
                     val posInfo = dlnaController.getPositionInfo(device)
                     if (posInfo != null) {
-                        _uiState.update {
+                        _playbackStatus.update {
                             it.copy(
-                                playbackStatus = it.playbackStatus.copy(
-                                    positionSeconds = posInfo.relTimeSeconds,
-                                    durationSeconds = if (posInfo.trackDurationSeconds > 0) posInfo.trackDurationSeconds else it.playbackStatus.durationSeconds
-                                )
+                                positionSeconds = posInfo.relTimeSeconds,
+                                durationSeconds = if (posInfo.trackDurationSeconds > 0) posInfo.trackDurationSeconds else it.durationSeconds
                             )
                         }
                         continue
@@ -627,18 +730,17 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                 if (current.state == TransportState.PLAYING) {
                     val nextPos = current.positionSeconds + 1
                     if (current.durationSeconds > 0 && nextPos >= current.durationSeconds) {
-                        _uiState.update {
+                        _playbackStatus.update {
                             it.copy(
-                                playbackStatus = it.playbackStatus.copy(
-                                    state = TransportState.STOPPED,
-                                    positionSeconds = current.durationSeconds
-                                )
+                                state = TransportState.STOPPED,
+                                positionSeconds = current.durationSeconds
                             )
                         }
+                        _uiState.update { it.copy(isPlaybackActive = false) }
                         break
                     } else {
-                        _uiState.update {
-                            it.copy(playbackStatus = it.playbackStatus.copy(positionSeconds = nextPos))
+                        _playbackStatus.update {
+                            it.copy(positionSeconds = nextPos)
                         }
                     }
                 }
@@ -648,19 +750,15 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
 
     fun togglePlayPause() {
         val device = _uiState.value.connectedDevice ?: return
-        val currentStatus = _uiState.value.playbackStatus
+        val currentStatus = _playbackStatus.value
 
         viewModelScope.launch {
             if (currentStatus.state == TransportState.PLAYING) {
                 dlnaController.pause(device)
-                _uiState.update {
-                    it.copy(playbackStatus = it.playbackStatus.copy(state = TransportState.PAUSED))
-                }
+                _playbackStatus.update { it.copy(state = TransportState.PAUSED) }
             } else {
                 dlnaController.play(device)
-                _uiState.update {
-                    it.copy(playbackStatus = it.playbackStatus.copy(state = TransportState.PLAYING))
-                }
+                _playbackStatus.update { it.copy(state = TransportState.PLAYING) }
                 startPlaybackTicker()
             }
         }
@@ -668,27 +766,23 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
 
     fun skip(seconds: Long) {
         val device = _uiState.value.connectedDevice ?: return
-        val currentStatus = _uiState.value.playbackStatus
+        val currentStatus = _playbackStatus.value
         val targetPos = (currentStatus.positionSeconds + seconds).coerceIn(0L, currentStatus.durationSeconds.coerceAtLeast(1L))
 
         viewModelScope.launch {
             dlnaController.seek(device, targetPos)
-            _uiState.update {
-                it.copy(playbackStatus = it.playbackStatus.copy(positionSeconds = targetPos))
-            }
+            _playbackStatus.update { it.copy(positionSeconds = targetPos) }
         }
     }
 
     fun seekTo(seconds: Long) {
         val device = _uiState.value.connectedDevice ?: return
-        val currentStatus = _uiState.value.playbackStatus
+        val currentStatus = _playbackStatus.value
         val targetPos = seconds.coerceIn(0L, currentStatus.durationSeconds.coerceAtLeast(1L))
 
         viewModelScope.launch {
             dlnaController.seek(device, targetPos)
-            _uiState.update {
-                it.copy(playbackStatus = it.playbackStatus.copy(positionSeconds = targetPos))
-            }
+            _playbackStatus.update { it.copy(positionSeconds = targetPos) }
         }
     }
 
@@ -701,14 +795,13 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             if (device != null) {
                 dlnaController.stop(device)
             }
-            _uiState.update {
+            _playbackStatus.update {
                 it.copy(
-                    playbackStatus = it.playbackStatus.copy(
-                        state = TransportState.STOPPED,
-                        positionSeconds = 0L
-                    )
+                    state = TransportState.STOPPED,
+                    positionSeconds = 0L
                 )
             }
+            _uiState.update { it.copy(isPlaybackActive = false) }
         }
     }
 
@@ -720,34 +813,32 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             if (device != null) {
                 dlnaController.setVolume(device, clamped)
             }
-            _uiState.update {
+            _playbackStatus.update {
                 it.copy(
-                    playbackStatus = it.playbackStatus.copy(
-                        volume = clamped,
-                        isMuted = clamped == 0
-                    )
+                    volume = clamped,
+                    isMuted = clamped == 0
                 )
             }
         }
     }
 
     fun adjustVolume(delta: Int) {
-        val currentVol = _uiState.value.playbackStatus.volume
+        val currentVol = _playbackStatus.value.volume
         val newVol = (currentVol + delta).coerceIn(0, 100)
         setVolume(newVol)
     }
 
     fun toggleMute() {
         val device = _uiState.value.connectedDevice
-        val currentMuted = _uiState.value.playbackStatus.isMuted
+        val currentMuted = _playbackStatus.value.isMuted
         val newMuted = !currentMuted
 
         viewModelScope.launch {
             if (device != null) {
                 dlnaController.setMute(device, newMuted)
             }
-            _uiState.update {
-                it.copy(playbackStatus = it.playbackStatus.copy(isMuted = newMuted))
+            _playbackStatus.update {
+                it.copy(isMuted = newMuted)
             }
         }
     }

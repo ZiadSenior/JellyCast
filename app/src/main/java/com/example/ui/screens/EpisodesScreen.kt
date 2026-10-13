@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -171,7 +172,11 @@ fun EpisodesScreen(
                         }
                     }
                 } else {
-                    items(episodes, key = { it.id }) { episode ->
+                    items(
+                        items = episodes,
+                        key = { it.id },
+                        contentType = { "episode_row" }
+                    ) { episode ->
                         EpisodeRowItem(
                             episode = episode,
                             serverUrl = serverUrl,
@@ -192,6 +197,10 @@ private fun EpisodeRowItem(
     token: String?,
     onClick: () -> Unit
 ) {
+    val thumbUrl = remember(episode.id, serverUrl, token) {
+        episode.getThumbnailPosterUrl(serverUrl, token)
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -216,7 +225,7 @@ private fun EpisodeRowItem(
                     .background(SurfaceVariantDark)
             ) {
                 AsyncImage(
-                    model = episode.getPosterUrl(serverUrl, token),
+                    model = thumbUrl,
                     contentDescription = episode.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

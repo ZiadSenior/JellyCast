@@ -36,13 +36,26 @@ import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,8 +76,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.data.model.AudioTranscodeMode
 import com.example.data.model.DlnaDevice
 import com.example.data.model.DlnaPlaybackStatus
+import com.example.data.model.MediaTrackInfo
 import com.example.data.model.TransportState
 import com.example.ui.theme.CastCyan
 import com.example.ui.theme.CastGreenActive
@@ -85,6 +100,15 @@ fun RemoteControlScreen(
     targetDevice: DlnaDevice?,
     serverUrl: String,
     token: String?,
+    audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AAC,
+    selectedAudioTrackIndex: Int? = null,
+    selectedSubtitleTrackIndex: Int? = null,
+    burnSubtitles: Boolean = true,
+    onAudioModeChange: (AudioTranscodeMode) -> Unit = {},
+    onAudioTrackChange: (Int?) -> Unit = {},
+    onSubtitleTrackChange: (Int?) -> Unit = {},
+    onBurnSubtitlesChange: (Boolean) -> Unit = {},
+    onApplyStreamSettings: () -> Unit = {},
     onTogglePlayPause: () -> Unit,
     onSkip: (Long) -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -98,6 +122,9 @@ fun RemoteControlScreen(
     val item = status.currentItem
     var isDraggingSlider by remember { mutableStateOf(false) }
     var sliderTempPosition by remember { mutableFloatStateOf(0f) }
+    var showStreamSettingsDialog by remember { mutableStateOf(false) }
+    var showSubtitleDropdown by remember { mutableStateOf(false) }
+    var showAudioDropdown by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -232,6 +259,288 @@ fun RemoteControlScreen(
                         textAlign = TextAlign.Center
                     )
                 }
+
+                // Live Stream Transcode & Subtitles Status Pill Row
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceDark)
+                            .border(1.dp, SurfaceElevated, RoundedCornerShape(8.dp))
+                            .clickable { showStreamSettingsDialog = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("remote_audio_format_pill")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeUp,
+                                contentDescription = null,
+                                tint = CastCyan,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = audioTranscodeMode.displayName,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CastCyan
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceDark)
+                            .border(1.dp, SurfaceElevated, RoundedCornerShape(8.dp))
+                            .clickable { showStreamSettingsDialog = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("remote_subtitle_pill")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Subtitles,
+                                contentDescription = null,
+                                tint = if (selectedSubtitleTrackIndex != null) CastGreenActive else TextMuted,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selectedSubtitleTrackIndex != null) "Subs: Burned" else "Subs: Off",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedSubtitleTrackIndex != null) CastGreenActive else TextMuted
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceElevated)
+                            .clickable { showStreamSettingsDialog = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("remote_open_stream_settings_button")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = TextPrimary,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Stream Options",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Stream Settings Modal Dialog
+            if (showStreamSettingsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showStreamSettingsDialog = false },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = CastCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "DLNA Stream Settings",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+                    },
+                    text = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Audio Format",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "Switching to AAC fixes silence on TVs lacking AC3/DTS support.",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                AudioTranscodeMode.values().forEach { mode ->
+                                    val isSelected = audioTranscodeMode == mode
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { onAudioModeChange(mode) },
+                                        label = {
+                                            Text(
+                                                text = mode.displayName,
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        leadingIcon = if (isSelected) {
+                                            {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                            }
+                                        } else null,
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            containerColor = SurfaceVariantDark,
+                                            labelColor = TextSecondary,
+                                            selectedContainerColor = CastCyan.copy(alpha = 0.2f),
+                                            selectedLabelColor = CastCyan,
+                                            selectedLeadingIconColor = CastCyan
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = isSelected,
+                                            borderColor = SurfaceElevated,
+                                            selectedBorderColor = CastCyan
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SurfaceElevated))
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "Subtitles (Burned into Video)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "Renders text directly into video stream for DLNA.",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            val currentSub = item?.subtitleTracks?.find { it.index == selectedSubtitleTrackIndex }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(SurfaceVariantDark)
+                                        .clickable { showSubtitleDropdown = true }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = currentSub?.title ?: if (selectedSubtitleTrackIndex == null) "Off (No Subtitles)" else "Subtitle #${selectedSubtitleTrackIndex}",
+                                        fontSize = 11.sp,
+                                        color = if (selectedSubtitleTrackIndex != null) CastCyan else TextSecondary
+                                    )
+                                    Text(
+                                        text = "Change",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = CastCyan
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSubtitleDropdown,
+                                    onDismissRequest = { showSubtitleDropdown = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Off (No Subtitles)", fontSize = 11.sp) },
+                                        onClick = {
+                                            onSubtitleTrackChange(null)
+                                            showSubtitleDropdown = false
+                                        }
+                                    )
+                                    item?.subtitleTracks?.forEach { track ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = track.title + if (track.isDefault) " (Default)" else "",
+                                                    fontSize = 11.sp
+                                                )
+                                            },
+                                            onClick = {
+                                                onSubtitleTrackChange(track.index)
+                                                showSubtitleDropdown = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (selectedSubtitleTrackIndex != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Burn subtitles into video",
+                                        fontSize = 11.sp,
+                                        color = TextPrimary
+                                    )
+                                    Switch(
+                                        checked = burnSubtitles,
+                                        onCheckedChange = { onBurnSubtitlesChange(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = DeepVioletBg,
+                                            checkedTrackColor = CastGreenActive,
+                                            uncheckedThumbColor = TextMuted,
+                                            uncheckedTrackColor = SurfaceElevated
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showStreamSettingsDialog = false
+                                onApplyStreamSettings()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CastCyan),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Apply to TV", color = DeepVioletBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(
+                            onClick = { showStreamSettingsDialog = false },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Cancel", color = TextSecondary, fontSize = 12.sp)
+                        }
+                    },
+                    containerColor = SurfaceDark
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))

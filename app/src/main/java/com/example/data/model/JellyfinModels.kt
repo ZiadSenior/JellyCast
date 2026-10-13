@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import androidx.compose.runtime.Immutable
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
@@ -52,6 +53,25 @@ data class JellyfinItemsResponse(
 )
 
 @JsonClass(generateAdapter = false)
+data class JellyfinMediaStreamDto(
+    @Json(name = "Index") val index: Int,
+    @Json(name = "Type") val type: String, // "Audio", "Subtitle", "Video"
+    @Json(name = "Codec") val codec: String? = null,
+    @Json(name = "Language") val language: String? = null,
+    @Json(name = "DisplayTitle") val displayTitle: String? = null,
+    @Json(name = "Title") val title: String? = null,
+    @Json(name = "IsDefault") val isDefault: Boolean? = false,
+    @Json(name = "IsForced") val isForced: Boolean? = false,
+    @Json(name = "Channels") val channels: Int? = null
+)
+
+@JsonClass(generateAdapter = false)
+data class JellyfinMediaSourceDto(
+    @Json(name = "Id") val id: String? = null,
+    @Json(name = "MediaStreams") val mediaStreams: List<JellyfinMediaStreamDto>? = null
+)
+
+@JsonClass(generateAdapter = false)
 data class JellyfinMediaItemDto(
     @Json(name = "Id") val id: String,
     @Json(name = "Name") val name: String,
@@ -69,9 +89,33 @@ data class JellyfinMediaItemDto(
     @Json(name = "EpisodeTitle") val episodeTitle: String? = null,
     @Json(name = "IndexNumber") val indexNumber: Int? = null,
     @Json(name = "ParentIndexNumber") val parentIndexNumber: Int? = null,
-    @Json(name = "PrimaryImageAspectRatio") val primaryImageAspectRatio: Float? = null
+    @Json(name = "PrimaryImageAspectRatio") val primaryImageAspectRatio: Float? = null,
+    @Json(name = "MediaStreams") val mediaStreams: List<JellyfinMediaStreamDto>? = null,
+    @Json(name = "MediaSources") val mediaSources: List<JellyfinMediaSourceDto>? = null
 )
 
+enum class AudioTranscodeMode(
+    val displayName: String,
+    val codecParam: String,
+    val description: String
+) {
+    AAC("AAC Stereo", "aac", "Transcodes AC3/DTS to AAC 2.0 (Fixes 'No Audio' on DLNA TVs)"),
+    DIRECT("Original (Direct)", "copy", "Streams original audio untouched"),
+    MP3("MP3 Stereo", "mp3", "Transcodes to MP3 2.0 (For older legacy players)")
+}
+
+@Immutable
+data class MediaTrackInfo(
+    val index: Int,
+    val title: String,
+    val codec: String?,
+    val language: String?,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
+    val channels: Int? = null
+)
+
+@Immutable
 data class JellyfinLibrary(
     val id: String,
     val name: String,
@@ -79,6 +123,7 @@ data class JellyfinLibrary(
     val iconName: String = "folder"
 )
 
+@Immutable
 data class JellyfinMediaItem(
     val id: String,
     val name: String,
@@ -96,7 +141,9 @@ data class JellyfinMediaItem(
     val parentIndexNumber: Int? = null,
     val customPosterUrl: String? = null,
     val customBackdropUrl: String? = null,
-    val customStreamUrl: String? = null
+    val customStreamUrl: String? = null,
+    val audioTracks: List<MediaTrackInfo> = emptyList(),
+    val subtitleTracks: List<MediaTrackInfo> = emptyList()
 ) {
     val durationSeconds: Long
         get() = (runTimeTicks ?: 0L) / 10_000_000L
@@ -109,6 +156,19 @@ data class JellyfinMediaItem(
             val minutes = (totalSec % 3600) / 60
             return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
         }
+
+    /**
+     * Fast, downscaled thumbnail for high-FPS grid scrolling.
+     */
+    fun getThumbnailPosterUrl(serverUrl: String, token: String? = null): String {
+        if (!customPosterUrl.isNullOrEmpty()) return customPosterUrl
+        val cleanServer = serverUrl.trimEnd('/')
+        return if (token != null) {
+            "$cleanServer/Items/$id/Images/Primary?quality=75&maxWidth=260&api_key=$token"
+        } else {
+            "$cleanServer/Items/$id/Images/Primary?quality=75&maxWidth=260"
+        }
+    }
 
     fun getPosterUrl(serverUrl: String, token: String? = null): String {
         if (!customPosterUrl.isNullOrEmpty()) return customPosterUrl
@@ -139,4 +199,63 @@ data class JellyfinMediaItem(
             "$cleanServer/Videos/$id/stream.mp4?static=true&api_key=${token ?: ""}"
         }
     }
+
+    /**
+     * Builds playback stream URL with audio transcoding (e.g. AC3 -> AAC) and subtitle burn-in.
+     */
+    fun getPlaybackStreamUrl(
+        serverUrl: String,
+        token: String? = null,
+        audioMode: AudioTranscodeMode = AudioTranscodeMode.AAC,
+        selectedSubtitleIndex: Int? = null,
+        burnSubtitles: Boolean = true,
+        selectedAudioIndex: Int? = null
+    ): String {
+        if (!customStreamUrl.isNullOrEmpty()) return customStreamUrl
+        val cleanServer = serverUrl.trimEnd('/')
+        val apiKeyParam = if (!token.isNullOrBlank()) "&api_key=$token" else ""
+
+        if (type.equals("Audio", ignoreCase = true)) {
+            return "$cleanServer/Audio/$id/stream.mp3?static=true$apiKeyParam"
+        }
+
+        val hasSubtitleBurn = selectedSubtitleIndex != null && burnSubtitles
+        val isDirectPlay = audioMode == AudioTranscodeMode.DIRECT && !hasSubtitleBurn && selectedAudioIndex == null
+
+        if (isDirectPlay) {
+            return "$cleanServer/Videos/$id/stream.mp4?static=true$apiKeyParam"
+        }
+
+        // Build progressive MP4 transcoding URL tailored for DLNA renderers
+        val urlBuilder = java.lang.StringBuilder("$cleanServer/Videos/$id/stream.mp4?static=false")
+
+        // Audio configuration
+        when (audioMode) {
+            AudioTranscodeMode.AAC -> {
+                urlBuilder.append("&AudioCodec=aac&TranscodingMaxAudioChannels=2&AudioBitRate=256000")
+            }
+            AudioTranscodeMode.MP3 -> {
+                urlBuilder.append("&AudioCodec=mp3&TranscodingMaxAudioChannels=2&AudioBitRate=256000")
+            }
+            AudioTranscodeMode.DIRECT -> {
+                urlBuilder.append("&AudioCodec=copy")
+            }
+        }
+
+        if (selectedAudioIndex != null) {
+            urlBuilder.append("&AudioStreamIndex=$selectedAudioIndex")
+        }
+
+        // Subtitle burn-in configuration (Encode directly into video frames for DLNA)
+        if (hasSubtitleBurn) {
+            urlBuilder.append("&SubtitleMethod=Encode&SubtitleStreamIndex=$selectedSubtitleIndex&VideoCodec=h264")
+        } else {
+            // No subtitle burn: allow copying video frames directly if compatible
+            urlBuilder.append("&VideoCodec=copy,h264")
+        }
+
+        urlBuilder.append(apiKeyParam)
+        return urlBuilder.toString()
+    }
 }
+

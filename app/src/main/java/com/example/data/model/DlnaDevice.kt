@@ -1,5 +1,7 @@
 package com.example.data.model
 
+import androidx.compose.runtime.Immutable
+
 enum class TransportState {
     IDLE,
     CONNECTING,
@@ -10,11 +12,13 @@ enum class TransportState {
     ERROR
 }
 
+@Immutable
 data class PositionInfo(
     val trackDurationSeconds: Long,
     val relTimeSeconds: Long
 )
 
+@Immutable
 data class DlnaDevice(
     val id: String,
     val friendlyName: String,
@@ -34,6 +38,7 @@ data class DlnaDevice(
         }
 }
 
+@Immutable
 data class DlnaPlaybackStatus(
     val state: TransportState = TransportState.IDLE,
     val currentItem: JellyfinMediaItem? = null,

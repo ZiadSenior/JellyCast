@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -186,7 +187,11 @@ fun SeasonsScreen(
                         }
                     }
                 } else {
-                    items(seasons, key = { it.id }) { season ->
+                    items(
+                        items = seasons,
+                        key = { it.id },
+                        contentType = { "season_card" }
+                    ) { season ->
                         SeasonCard(
                             season = season,
                             fallbackSeries = series,
@@ -201,6 +206,10 @@ fun SeasonsScreen(
     }
 }
 
+private val SeasonBottomGradient = Brush.verticalGradient(
+    listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+)
+
 @Composable
 private fun SeasonCard(
     season: JellyfinMediaItem,
@@ -209,12 +218,14 @@ private fun SeasonCard(
     token: String?,
     onClick: () -> Unit
 ) {
-    val posterUrl = season.getPosterUrl(serverUrl, token)
+    val posterUrl = remember(season.id, serverUrl, token) {
+        season.getThumbnailPosterUrl(serverUrl, token)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("season_card_${season.id}")
     ) {
@@ -222,9 +233,9 @@ private fun SeasonCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(SurfaceDark)
-                .border(1.dp, SurfaceElevated, RoundedCornerShape(16.dp))
+                .border(1.dp, SurfaceElevated, RoundedCornerShape(14.dp))
         ) {
             AsyncImage(
                 model = posterUrl,
@@ -239,11 +250,7 @@ private fun SeasonCard(
                     .fillMaxWidth()
                     .height(60.dp)
                     .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                        )
-                    )
+                    .background(SeasonBottomGradient)
             )
 
             if (season.indexNumber != null) {

@@ -64,23 +64,13 @@ import com.example.ui.theme.WarningAmber
 fun HeaderBar(
     currentScreen: Screen,
     connectedDevice: DlnaDevice?,
-    playbackState: TransportState,
+    isPlaybackActive: Boolean,
     isLoggedIn: Boolean,
     onBackClick: () -> Unit,
     onCastPillClick: () -> Unit,
     onOpenRemoteClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -168,7 +158,7 @@ fun HeaderBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End
                 ) {
-                    if (playbackState == TransportState.PLAYING || playbackState == TransportState.PAUSED) {
+                    if (isPlaybackActive) {
                         if (currentScreen != Screen.REMOTE_CONTROL) {
                             Box(
                                 modifier = Modifier
@@ -250,11 +240,10 @@ fun HeaderBar(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            // Pulsing dot or warning icon
+                            // High visibility static status dot
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp)
-                                    .scale(if (isConnected) pulseScale else 1f)
+                                    .size(9.dp)
                                     .clip(CircleShape)
                                     .background(if (isConnected) CastGreenActive else WarningAmber)
                             )

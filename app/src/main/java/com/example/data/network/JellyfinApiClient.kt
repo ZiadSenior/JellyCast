@@ -189,22 +189,7 @@ class JellyfinApiClient {
 
             if (response.isSuccessful) {
                 val items = response.body()?.items?.map { dto ->
-                    JellyfinMediaItem(
-                        id = dto.id,
-                        name = dto.name,
-                        overview = dto.overview ?: "No overview available.",
-                        type = dto.type ?: "Movie",
-                        productionYear = dto.productionYear,
-                        communityRating = dto.communityRating,
-                        runTimeTicks = dto.runTimeTicks,
-                        genres = dto.genres ?: emptyList(),
-                        seriesName = dto.seriesName,
-                        seriesId = dto.seriesId,
-                        seasonId = dto.seasonId,
-                        seasonName = dto.seasonName,
-                        indexNumber = dto.indexNumber,
-                        parentIndexNumber = dto.parentIndexNumber
-                    )
+                    mapDtoToMediaItem(dto)
                 } ?: emptyList()
                 Result.success(items)
             } else {
@@ -238,20 +223,12 @@ class JellyfinApiClient {
 
             if (response.isSuccessful) {
                 val items = response.body()?.items?.map { dto ->
-                    JellyfinMediaItem(
-                        id = dto.id,
-                        name = dto.name,
-                        overview = dto.overview ?: "",
-                        type = "Season",
-                        productionYear = dto.productionYear,
-                        communityRating = dto.communityRating,
-                        runTimeTicks = dto.runTimeTicks,
-                        genres = dto.genres ?: emptyList(),
-                        seriesName = dto.seriesName,
-                        seriesId = seriesId,
-                        seasonId = dto.id,
-                        seasonName = dto.name,
-                        indexNumber = dto.indexNumber
+                    mapDtoToMediaItem(
+                        dto = dto,
+                        defaultType = "Season",
+                        overrideSeriesId = seriesId,
+                        overrideSeasonId = dto.id,
+                        overrideSeasonName = dto.name
                     )
                 } ?: emptyList()
                 Result.success(items)
@@ -287,21 +264,11 @@ class JellyfinApiClient {
 
             if (response.isSuccessful) {
                 val items = response.body()?.items?.map { dto ->
-                    JellyfinMediaItem(
-                        id = dto.id,
-                        name = dto.name,
-                        overview = dto.overview ?: "No overview available.",
-                        type = "Episode",
-                        productionYear = dto.productionYear,
-                        communityRating = dto.communityRating,
-                        runTimeTicks = dto.runTimeTicks,
-                        genres = dto.genres ?: emptyList(),
-                        seriesName = dto.seriesName,
-                        seriesId = seriesId,
-                        seasonId = seasonId ?: dto.seasonId,
-                        seasonName = dto.seasonName,
-                        indexNumber = dto.indexNumber,
-                        parentIndexNumber = dto.parentIndexNumber
+                    mapDtoToMediaItem(
+                        dto = dto,
+                        defaultType = "Episode",
+                        overrideSeriesId = seriesId,
+                        overrideSeasonId = seasonId ?: dto.seasonId
                     )
                 } ?: emptyList()
                 Result.success(items)
@@ -313,4 +280,142 @@ class JellyfinApiClient {
             Result.failure(e)
         }
     }
+
+    suspend fun getItemDetails(
+        serverUrl: String,
+        userId: String,
+        token: String,
+        itemId: String
+    ): Result<JellyfinMediaItem> = withContext(Dispatchers.IO) {
+        try {
+            val service = getService(serverUrl)
+            val authHeader = JellyfinApiService.buildAuthHeader(token)
+
+            val response = if (userId.isNotBlank()) {
+                service.getItem(
+                    userId = userId,
+                    itemId = itemId,
+                    authorization = authHeader,
+                    xEmbyAuthorization = authHeader,
+                    xEmbyToken = token,
+                    apiKey = token
+                )
+            } else {
+                service.getItemDirect(
+                    itemId = itemId,
+                    authorization = authHeader,
+                    xEmbyAuthorization = authHeader,
+                    xEmbyToken = token,
+                    apiKey = token
+                )
+            }
+
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(mapDtoToMediaItem(response.body()!!))
+            } else {
+                val errBody = try { response.errorBody()?.string() ?: "" } catch (e: Exception) { "" }
+                Result.failure(Exception(if (errBody.isNotBlank()) errBody else "HTTP ${response.code()}: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun mapDtoToMediaItem(
+        dto: com.example.data.model.JellyfinMediaItemDto,
+        defaultType: String? = null,
+        overrideSeriesId: String? = null,
+        overrideSeasonId: String? = null,
+        overrideSeasonName: String? = null
+    ): JellyfinMediaItem {
+        val (audioTracks, subtitleTracks) = extractMediaTracks(dto)
+
+        return JellyfinMediaItem(
+            id = dto.id,
+            name = dto.name,
+            overview = dto.overview ?: if (defaultType == "Season") "" else "No overview available.",
+            type = defaultType ?: dto.type ?: "Movie",
+            productionYear = dto.productionYear,
+            communityRating = dto.communityRating,
+            runTimeTicks = dto.runTimeTicks,
+            genres = dto.genres ?: emptyList(),
+            seriesName = dto.seriesName,
+            seriesId = overrideSeriesId ?: dto.seriesId,
+            seasonId = overrideSeasonId ?: dto.seasonId,
+            seasonName = overrideSeasonName ?: dto.seasonName,
+            indexNumber = dto.indexNumber,
+            parentIndexNumber = dto.parentIndexNumber,
+            audioTracks = audioTracks,
+            subtitleTracks = subtitleTracks
+        )
+    }
+
+    private fun extractMediaTracks(
+        dto: com.example.data.model.JellyfinMediaItemDto
+    ): Pair<List<com.example.data.model.MediaTrackInfo>, List<com.example.data.model.MediaTrackInfo>> {
+        val streams = dto.mediaStreams
+            ?: dto.mediaSources?.firstOrNull()?.mediaStreams
+            ?: emptyList()
+
+        val audioTracks = mutableListOf<com.example.data.model.MediaTrackInfo>()
+        val subtitleTracks = mutableListOf<com.example.data.model.MediaTrackInfo>()
+
+        for (s in streams) {
+            val lang = s.language?.lowercase()
+            val codec = s.codec?.lowercase()
+            val channels = s.channels
+            val channelStr = when (channels) {
+                1 -> "Mono"
+                2 -> "Stereo"
+                6 -> "5.1"
+                8 -> "7.1"
+                else -> ""
+            }
+
+            if (s.type.equals("Audio", ignoreCase = true)) {
+                val title = s.displayTitle ?: s.title ?: run {
+                    val parts = listOfNotNull(
+                        lang?.uppercase(),
+                        codec?.uppercase(),
+                        channelStr.takeIf { it.isNotBlank() }
+                    )
+                    if (parts.isNotEmpty()) parts.joinToString(" • ") else "Audio Track #${s.index}"
+                }
+                audioTracks.add(
+                    com.example.data.model.MediaTrackInfo(
+                        index = s.index,
+                        title = title,
+                        codec = codec,
+                        language = lang,
+                        isDefault = s.isDefault == true,
+                        isForced = s.isForced == true,
+                        channels = channels
+                    )
+                )
+            } else if (s.type.equals("Subtitle", ignoreCase = true)) {
+                val title = s.displayTitle ?: s.title ?: run {
+                    val parts = listOfNotNull(
+                        lang?.uppercase(),
+                        codec?.uppercase(),
+                        if (s.isForced == true) "Forced" else null
+                    )
+                    if (parts.isNotEmpty()) parts.joinToString(" • ") else "Subtitle #${s.index}"
+                }
+                subtitleTracks.add(
+                    com.example.data.model.MediaTrackInfo(
+                        index = s.index,
+                        title = title,
+                        codec = codec,
+                        language = lang,
+                        isDefault = s.isDefault == true,
+                        isForced = s.isForced == true,
+                        channels = null
+                    )
+                )
+            }
+        }
+
+        return Pair(audioTracks, subtitleTracks)
+    }
 }
+

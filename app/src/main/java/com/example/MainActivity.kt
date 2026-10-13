@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val playbackStatus by viewModel.playbackStatus.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.toastMessage) {
@@ -81,7 +82,7 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
             HeaderBar(
                 currentScreen = uiState.currentScreen,
                 connectedDevice = uiState.connectedDevice,
-                playbackState = uiState.playbackStatus.state,
+                isPlaybackActive = uiState.isPlaybackActive,
                 isLoggedIn = uiState.isLoggedIn,
                 onBackClick = { viewModel.navigateBack() },
                 onCastPillClick = { viewModel.openDeviceDialog() },
@@ -91,14 +92,14 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
         },
         bottomBar = {
             // Persistent Mini Player bar when casting media in the background
-            if (uiState.currentScreen != Screen.REMOTE_CONTROL && uiState.currentScreen != Screen.SETUP) {
+            if (uiState.currentScreen != Screen.REMOTE_CONTROL && uiState.currentScreen != Screen.SETUP && uiState.isPlaybackActive) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
                 ) {
                     MiniPlayerBar(
-                        status = uiState.playbackStatus,
+                        status = playbackStatus,
                         targetDevice = uiState.connectedDevice,
                         serverUrl = uiState.serverUrl,
                         token = uiState.accessToken,
@@ -199,6 +200,14 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
                                 connectedDevice = uiState.connectedDevice,
                                 serverUrl = uiState.serverUrl,
                                 token = uiState.accessToken,
+                                audioTranscodeMode = uiState.audioTranscodeMode,
+                                selectedAudioTrackIndex = uiState.selectedAudioTrackIndex,
+                                selectedSubtitleTrackIndex = uiState.selectedSubtitleTrackIndex,
+                                burnSubtitles = uiState.burnSubtitles,
+                                onAudioModeChange = { mode -> viewModel.setAudioTranscodeMode(mode) },
+                                onAudioTrackChange = { track -> viewModel.setSelectedAudioTrack(track) },
+                                onSubtitleTrackChange = { track -> viewModel.setSelectedSubtitleTrack(track) },
+                                onBurnSubtitlesChange = { burn -> viewModel.setBurnSubtitles(burn) },
                                 onPlayClick = { viewModel.playMedia(item) },
                                 onOpenCastScanner = { viewModel.openDeviceDialog() }
                             )
@@ -207,10 +216,19 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
 
                     Screen.REMOTE_CONTROL -> {
                         RemoteControlScreen(
-                            status = uiState.playbackStatus,
+                            status = playbackStatus,
                             targetDevice = uiState.connectedDevice,
                             serverUrl = uiState.serverUrl,
                             token = uiState.accessToken,
+                            audioTranscodeMode = uiState.audioTranscodeMode,
+                            selectedAudioTrackIndex = uiState.selectedAudioTrackIndex,
+                            selectedSubtitleTrackIndex = uiState.selectedSubtitleTrackIndex,
+                            burnSubtitles = uiState.burnSubtitles,
+                            onAudioModeChange = { mode -> viewModel.setAudioTranscodeMode(mode) },
+                            onAudioTrackChange = { track -> viewModel.setSelectedAudioTrack(track) },
+                            onSubtitleTrackChange = { track -> viewModel.setSelectedSubtitleTrack(track) },
+                            onBurnSubtitlesChange = { burn -> viewModel.setBurnSubtitles(burn) },
+                            onApplyStreamSettings = { viewModel.applyPlaybackSettings() },
                             onTogglePlayPause = { viewModel.togglePlayPause() },
                             onSkip = { sec -> viewModel.skip(sec) },
                             onSeekTo = { sec -> viewModel.seekTo(sec) },

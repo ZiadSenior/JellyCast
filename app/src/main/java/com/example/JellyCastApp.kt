@@ -23,19 +23,20 @@ class JellyCastApp : Application(), ImageLoaderFactory {
             .okHttpClient(okHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.30)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(cacheDir, "image_cache"))
-                    .maxSizeBytes(150L * 1024 * 1024)
+                    .maxSizeBytes(200L * 1024 * 1024)
                     .build()
             }
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(300)
+            .crossfade(false) // Zero-jank instant image render on scroll
+            .allowRgb565(true) // 50% less RAM per decoded poster bitmap
             .respectCacheHeaders(false) // Cache images aggressively for fast local rendering
             .build()
     }
