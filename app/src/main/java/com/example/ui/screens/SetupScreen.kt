@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,6 +68,14 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+
 @Composable
 fun SetupScreen(
     serverUrl: String,
@@ -75,7 +84,8 @@ fun SetupScreen(
     authError: String?,
     onServerUrlChange: (String) -> Unit,
     onUsernameChange: (String) -> Unit,
-    onConnectClick: (password: String) -> Unit
+    onConnectClick: (password: String) -> Unit,
+    onDiscoverClick: () -> Unit
 ) {
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
@@ -142,12 +152,43 @@ fun SetupScreen(
                     .fillMaxWidth()
                     .padding(20.dp)
             ) {
-                Text(
-                    text = "Server Credentials",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Server Credentials",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    OutlinedButton(
+                        onClick = onDiscoverClick,
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = CastCyan
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CastCyan.copy(alpha = 0.5f)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("auto_discover_server_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sensors,
+                            contentDescription = null,
+                            tint = CastCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Auto-Discover",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = CastCyan
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -159,6 +200,19 @@ fun SetupScreen(
                     placeholder = { Text("http://192.168.1.100:8096") },
                     leadingIcon = {
                         Icon(imageVector = Icons.Default.Dns, contentDescription = null, tint = JellyViolet)
+                    },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = onDiscoverClick,
+                            modifier = Modifier.testTag("server_url_discover_icon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sensors,
+                                contentDescription = "Discover Servers",
+                                tint = CastCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
@@ -175,7 +229,68 @@ fun SetupScreen(
                         .testTag("server_url_input")
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Prominent Auto-Discover Button Banner
+                Surface(
+                    onClick = onDiscoverClick,
+                    shape = RoundedCornerShape(12.dp),
+                    color = CastCyan.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, CastCyan.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("discover_servers_banner_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(CastCyan.copy(alpha = 0.22f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sensors,
+                                    contentDescription = null,
+                                    tint = CastCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Auto-Discover Server",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CastCyan
+                                )
+                                Text(
+                                    text = "Scan Wi-Fi for Jellyfin instead of entering IP",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = CastCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Username input
                 OutlinedTextField(

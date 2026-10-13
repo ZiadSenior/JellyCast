@@ -116,6 +116,13 @@ data class MediaTrackInfo(
 )
 
 @Immutable
+data class DiscoveredJellyfinServer(
+    val name: String,
+    val address: String, // e.g. "http://192.168.1.100:8096"
+    val id: String? = null
+)
+
+@Immutable
 data class JellyfinLibrary(
     val id: String,
     val name: String,

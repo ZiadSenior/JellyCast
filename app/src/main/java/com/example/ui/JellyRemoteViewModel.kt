@@ -24,7 +24,9 @@ import kotlinx.coroutines.launch
 
 import androidx.compose.runtime.Immutable
 import com.example.data.model.AudioTranscodeMode
+import com.example.data.model.DiscoveredJellyfinServer
 import com.example.data.model.MediaTrackInfo
+import com.example.data.network.JellyfinServerDiscovery
 
 enum class Screen {
     SETUP,
@@ -75,6 +77,11 @@ data class UiState(
     val connectedDevice: DlnaDevice? = null,
     val showDeviceDialog: Boolean = false,
 
+    // Server Discovery state
+    val isDiscoveringServers: Boolean = false,
+    val discoveredServers: List<DiscoveredJellyfinServer> = emptyList(),
+    val showServerDiscoveryDialog: Boolean = false,
+
     val isPlaybackActive: Boolean = false,
     val toastMessage: String? = null
 )
@@ -84,6 +91,7 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     private val apiClient = JellyfinApiClient()
     private val dlnaController = DlnaController(application)
     private val cacheManager = MediaCacheManager(application)
+    private val serverDiscovery = JellyfinServerDiscovery(application)
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -175,6 +183,49 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
 
     fun closeDeviceDialog() {
         _uiState.update { it.copy(showDeviceDialog = false) }
+    }
+
+    fun openServerDiscovery() {
+        _uiState.update { it.copy(showServerDiscoveryDialog = true) }
+        discoverServers()
+    }
+
+    fun closeServerDiscovery() {
+        _uiState.update { it.copy(showServerDiscoveryDialog = false, isDiscoveringServers = false) }
+    }
+
+    fun discoverServers() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDiscoveringServers = true) }
+            val servers = serverDiscovery.discoverServers(timeoutMs = 2800)
+            _uiState.update {
+                it.copy(
+                    isDiscoveringServers = false,
+                    discoveredServers = servers
+                )
+            }
+            if (servers.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(toastMessage = "Found ${servers.size} Jellyfin server(s) on network!")
+                }
+            } else {
+                _uiState.update {
+                    it.copy(toastMessage = "No Jellyfin servers responded on local network.")
+                }
+            }
+        }
+    }
+
+    fun selectDiscoveredServer(server: DiscoveredJellyfinServer) {
+        _uiState.update {
+            it.copy(
+                serverUrl = server.address,
+                showServerDiscoveryDialog = false,
+                authError = null,
+                toastMessage = "Selected: ${server.name} (${server.address})"
+            )
+        }
+        prefs.edit().putString("server_url", server.address).apply()
     }
 
     fun clearToast() {

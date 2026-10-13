@@ -33,6 +33,7 @@ import com.example.ui.Screen
 import com.example.ui.components.CastDeviceDialog
 import com.example.ui.components.HeaderBar
 import com.example.ui.components.MiniPlayerBar
+import com.example.ui.components.ServerDiscoveryDialog
 import com.example.ui.screens.EpisodesScreen
 import com.example.ui.screens.LibrariesScreen
 import com.example.ui.screens.MediaDetailScreen
@@ -130,7 +131,8 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
                             authError = uiState.authError,
                             onServerUrlChange = { viewModel.updateServerUrl(it) },
                             onUsernameChange = { viewModel.updateUsername(it) },
-                            onConnectClick = { pass -> viewModel.login(pass) }
+                            onConnectClick = { pass -> viewModel.login(pass) },
+                            onDiscoverClick = { viewModel.openServerDiscovery() }
                         )
                     }
 
@@ -256,5 +258,16 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
         onDisconnect = { viewModel.disconnectDlnaDevice() },
         onRescan = { viewModel.scanDlnaDevices() },
         onAddManualDevice = { name, ip, port -> viewModel.addManualDlnaDevice(name, ip, port) }
+    )
+
+    // Jellyfin Server Discovery Dialog
+    ServerDiscoveryDialog(
+        isOpen = uiState.showServerDiscoveryDialog,
+        isScanning = uiState.isDiscoveringServers,
+        servers = uiState.discoveredServers,
+        currentServerUrl = uiState.serverUrl,
+        onDismiss = { viewModel.closeServerDiscovery() },
+        onSelectServer = { server -> viewModel.selectDiscoveredServer(server) },
+        onRescan = { viewModel.discoverServers() }
     )
 }
