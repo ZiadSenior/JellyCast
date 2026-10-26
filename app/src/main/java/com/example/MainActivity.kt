@@ -105,7 +105,8 @@ fun JellyCastMainApp(viewModel: JellyRemoteViewModel = viewModel()) {
                         serverUrl = uiState.serverUrl,
                         token = uiState.accessToken,
                         onBarClick = { viewModel.openRemote() },
-                        onTogglePlayPause = { viewModel.togglePlayPause() }
+                        onTogglePlayPause = { viewModel.togglePlayPause() },
+                        onStopPlayback = { viewModel.stopPlayback() }
                     )
                 }
             }

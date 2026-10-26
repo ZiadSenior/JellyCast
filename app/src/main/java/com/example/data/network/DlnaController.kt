@@ -254,6 +254,8 @@ class DlnaController(private val context: Context) {
         val candidatePaths = listOf(
             "/description.xml",
             "/device-desc.xml",
+            "/upnp/rootdevice.xml",
+            "/rootDesc.xml",
             "/ssdp/device-desc.xml",
             "/dial/dd.xml",
             "/dmr/SamsungMRDesc.xml",

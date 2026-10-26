@@ -59,9 +59,21 @@ JellyCast Architecture
 ### Download & Install
 
 You can download the pre-compiled APK directly from the **[Releases](../../releases)** tab of this repository:
-1. Go to the latest release (`v1.0-latest`).
-2. Download `JellyCast.apk`.
+1. Go to the latest release (e.g., `v1.4`).
+2. Download **`JellyCast-1.4.apk`** (or `JellyCast.apk` for app managers like Obtanium).
 3. Install the APK on your Android device (ensure "Install from unknown sources" is enabled in settings).
+
+For release notes and version history, see **[CHANGELOG.md](CHANGELOG.md)**.
+
+### 🔄 Automatic Updates via Obtanium
+
+JellyCast releases are 100% compatible with [Obtanium](https://github.com/ImranR98/Obtanium) for seamless automatic background updates:
+
+1. Open **Obtanium** on your Android device.
+2. Tap **Add App** and paste your GitHub repository URL:
+   `https://github.com/<your-username>/<your-repo>`
+3. Tap **Add** (no complex regex needed; Obtanium will automatically find `JellyCast-<version>.apk` or `JellyCast.apk`).
+4. **Certificate Guarantee**: All GitHub Actions builds utilize a consistent, deterministic signing certificate stored in repository configuration, preventing "signing certificate mismatch" errors across updates.
 
 ---
 

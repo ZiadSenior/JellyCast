@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -57,30 +59,43 @@ jobs:
           ORG_GRADLE_PROJECT_android.nonTransitiveRClass: "true"
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare APK Output
-        run: |
-          mkdir -p build-artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk build-artifacts/JellyCast.apk
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: JellyCast-APK
-          path: build-artifacts/JellyCast.apk
-          retention-days: 14
-
-      - name: Determine Release Tag
+      - name: Extract Version & Determine Release Info
         id: release_info
         run: |
+          # Extract version from app/build.gradle.kts
+          APP_VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -n 1 | sed -E 's/.*versionName = "([^"]+)".*/\1/')
+          if [ -z "$APP_VERSION" ]; then
+            APP_VERSION="1.4"
+          fi
+          APK_NAME="JellyCast-${APP_VERSION}.apk"
+          echo "version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "apk_name=${APK_NAME}" >> $GITHUB_OUTPUT
+
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG="${{ github.ref_name }}"
             TITLE="JellyCast ${TAG}"
           else
-            TAG="v1.2"
-            TITLE="JellyCast v1.2"
+            TAG="v${APP_VERSION}"
+            TITLE="JellyCast v${APP_VERSION}"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Prepare APK Output
+        run: |
+          mkdir -p build-artifacts
+          APK_NAME="${{ steps.release_info.outputs.apk_name }}"
+          # Copy to versioned name (e.g. JellyCast-1.4.apk) and universal alias (JellyCast.apk)
+          cp app/build/outputs/apk/debug/app-debug.apk "build-artifacts/${APK_NAME}"
+          cp app/build/outputs/apk/debug/app-debug.apk build-artifacts/JellyCast.apk
+          echo "Prepared artifacts: build-artifacts/${APK_NAME} and build-artifacts/JellyCast.apk"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: JellyCast-${{ steps.release_info.outputs.version }}-APK
+          path: build-artifacts/*.apk
+          retention-days: 14
 
       - name: Clean Up Legacy Release Assets
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
@@ -88,10 +103,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_TAG="${{ steps.release_info.outputs.tag }}"
+          CURRENT_APK="${{ steps.release_info.outputs.apk_name }}"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            for asset in $(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name != "JellyCast.apk") | .name'); do
-              echo "Removing outdated release asset: $asset"
-              gh release delete-asset "$RELEASE_TAG" "$asset" --yes || true
+            for asset in $(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'); do
+              if [ "$asset" != "$CURRENT_APK" ] && [ "$asset" != "JellyCast.apk" ]; then
+                echo "Removing outdated release asset: $asset"
+                gh release delete-asset "$RELEASE_TAG" "$asset" --yes || true
+              fi
             done
           fi
 
@@ -111,19 +129,28 @@ jobs:
           tag_name: ${{ steps.release_info.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: ${{ steps.release_info.outputs.title }}
+          draft: false
+          prerelease: false
+          make_latest: "true"
           body: |
-            ## JellyCast v1.2
+            ## JellyCast v${{ steps.release_info.outputs.version }}
 
             ### Direct APK Download
-            Download **`JellyCast.apk`** below directly to your phone or tablet.
+            - **Primary Package:** **`${{ steps.release_info.outputs.apk_name }}`**
+            - **Universal / Obtanium Package:** **`JellyCast.apk`**
 
-            ### What's New in v1.2
-            - **Buttery-Smooth UI**: Decoupled playback state flow, eliminated background frame animations, and enabled lightweight bitmap caching for 60/120 FPS scrolling.
-            - **Audio Transcoding Options**: Real-time transcoding to AAC 2.0 Stereo or MP3 Stereo for DLNA TVs lacking AC3/DTS audio decoding.
-            - **Subtitle Burn-In**: Built-in option to have Jellyfin transcode and burn selected subtitles directly into video streams for DLNA renderers.
-            - **Full Series & Seasons Navigation**: Complete TV show hierarchy (Shows -> Seasons -> Episodes) with instant playback and poster art.
-            - **Stream Settings Dialog**: Live audio track and subtitle switcher during playback in the remote control.
-          files: build-artifacts/JellyCast.apk
+            ### What's New in v${{ steps.release_info.outputs.version }}
+            - **Audio Transcoding Fixed**: Resolved "unsupported format" errors and muted audio by fixing stream-copy syntax and downmixing to high-quality 2-channel 256k AAC.
+            - **AAC (MPEG-TS) Mode**: Added `.ts` streaming container to overcome receiver and TV limitations with live progressive MP4 containers.
+            - **Audio Track Selector**: Live audio track selection in remote control and media detail views with proper `MediaSourceId` integration, enabling alternate languages, director commentary, and surround tracks to transcode with clean audio.
+            - **Position Preserving Stream Switching**: Switching audio tracks or transcode profiles automatically resumes playback at the exact timestamp.
+            - **One-Tap Server Auto-Discovery**: Automatically discovers Jellyfin servers on the local network via UDP (port 7359) and subnet scan.
+            - **Dynamic Versioned APK Naming**: From v1.4 onwards, releases include `JellyCast-<version>.apk` (e.g. `${{ steps.release_info.outputs.apk_name }}`).
+
+            *For the complete changelog of all versions, see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).*
+          files: |
+            build-artifacts/${{ steps.release_info.outputs.apk_name }}
+            build-artifacts/JellyCast.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

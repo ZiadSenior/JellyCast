@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -56,7 +57,8 @@ fun MiniPlayerBar(
     serverUrl: String,
     token: String?,
     onBarClick: () -> Unit,
-    onTogglePlayPause: () -> Unit
+    onTogglePlayPause: () -> Unit,
+    onStopPlayback: (() -> Unit)? = null
 ) {
     val item = status.currentItem ?: return
     if (status.state == TransportState.IDLE || status.state == TransportState.STOPPED) return
@@ -136,28 +138,49 @@ fun MiniPlayerBar(
                     }
                 }
 
-                // Play / Pause button
-                IconButton(
-                    onClick = onTogglePlayPause,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(JellyViolet)
-                        .testTag("mini_player_play_pause")
-                ) {
-                    if (status.state == TransportState.BUFFERING) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = DeepVioletBg,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (status.state == TransportState.PLAYING) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = DeepVioletBg,
-                            modifier = Modifier.size(20.dp)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Play / Pause button
+                    IconButton(
+                        onClick = onTogglePlayPause,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(JellyViolet)
+                            .testTag("mini_player_play_pause")
+                    ) {
+                        if (status.state == TransportState.BUFFERING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = DeepVioletBg,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (status.state == TransportState.PLAYING) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pause",
+                                tint = DeepVioletBg,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (onStopPlayback != null) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = onStopPlayback,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(SurfaceElevated)
+                                .testTag("mini_player_stop")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
