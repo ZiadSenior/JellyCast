@@ -85,16 +85,14 @@ jobs:
         run: |
           mkdir -p build-artifacts
           APK_NAME="${{ steps.release_info.outputs.apk_name }}"
-          # Copy to versioned name (e.g. JellyCast-1.4.apk) and universal alias (JellyCast.apk)
           cp app/build/outputs/apk/debug/app-debug.apk "build-artifacts/${APK_NAME}"
-          cp app/build/outputs/apk/debug/app-debug.apk build-artifacts/JellyCast.apk
-          echo "Prepared artifacts: build-artifacts/${APK_NAME} and build-artifacts/JellyCast.apk"
+          echo "Prepared release artifact: build-artifacts/${APK_NAME}"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v6
         with:
           name: JellyCast-${{ steps.release_info.outputs.version }}-APK
-          path: build-artifacts/*.apk
+          path: build-artifacts/${{ steps.release_info.outputs.apk_name }}
           retention-days: 14
 
       - name: Clean Up Legacy Release Assets
@@ -106,7 +104,7 @@ jobs:
           CURRENT_APK="${{ steps.release_info.outputs.apk_name }}"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             for asset in $(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'); do
-              if [ "$asset" != "$CURRENT_APK" ] && [ "$asset" != "JellyCast.apk" ]; then
+              if [ "$asset" != "$CURRENT_APK" ]; then
                 echo "Removing outdated release asset: $asset"
                 gh release delete-asset "$RELEASE_TAG" "$asset" --yes || true
               fi
@@ -136,8 +134,7 @@ jobs:
             ## JellyCast v${{ steps.release_info.outputs.version }}
 
             ### Direct APK Download
-            - **Primary Package:** **`${{ steps.release_info.outputs.apk_name }}`**
-            - **Universal / Obtanium Package:** **`JellyCast.apk`**
+            Download **`${{ steps.release_info.outputs.apk_name }}`** below directly to your device or update via Obtanium.
 
             ### What's New in v${{ steps.release_info.outputs.version }}
             - **Audio Transcoding Fixed**: Resolved "unsupported format" errors and muted audio by fixing stream-copy syntax and downmixing to high-quality 2-channel 256k AAC.
@@ -148,9 +145,7 @@ jobs:
             - **Dynamic Versioned APK Naming**: From v1.4 onwards, releases include `JellyCast-<version>.apk` (e.g. `${{ steps.release_info.outputs.apk_name }}`).
 
             *For the complete changelog of all versions, see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).*
-          files: |
-            build-artifacts/${{ steps.release_info.outputs.apk_name }}
-            build-artifacts/JellyCast.apk
+          files: build-artifacts/${{ steps.release_info.outputs.apk_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
