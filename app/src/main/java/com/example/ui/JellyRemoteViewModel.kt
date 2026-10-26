@@ -671,20 +671,46 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         val state = _uiState.value
-        val streamUrl = item.getPlaybackStreamUrl(
+        val enrichedItem = if (item.audioTracks.isNotEmpty()) item
+            else if (state.selectedMediaItem?.id == item.id && state.selectedMediaItem.audioTracks.isNotEmpty()) state.selectedMediaItem
+            else item
+
+        val selectedAudio = state.selectedAudioTrackIndex
+            ?: enrichedItem.audioTracks.firstOrNull { it.isDefault }?.index
+            ?: enrichedItem.audioTracks.firstOrNull()?.index
+
+        val selectedSub = state.selectedSubtitleTrackIndex
+            ?: enrichedItem.subtitleTracks.firstOrNull { it.isDefault }?.index
+
+        val streamUrl = enrichedItem.getPlaybackStreamUrl(
             serverUrl = state.serverUrl,
             token = state.accessToken,
             audioMode = state.audioTranscodeMode,
-            selectedSubtitleIndex = state.selectedSubtitleTrackIndex,
+            selectedSubtitleIndex = selectedSub,
             burnSubtitles = state.burnSubtitles,
-            selectedAudioIndex = state.selectedAudioTrackIndex
+            selectedAudioIndex = selectedAudio
         )
-        val initialDuration = item.durationSeconds.takeIf { it > 0 } ?: 0L
+        val initialDuration = enrichedItem.durationSeconds.takeIf { it > 0 } ?: 0L
+
+        // If tracks are empty, enrich in background so user has audio track switching immediately
+        if (enrichedItem.audioTracks.isEmpty() && !state.accessToken.isNullOrBlank()) {
+            viewModelScope.launch {
+                val detailsRes = apiClient.getItemDetails(state.serverUrl, state.userId ?: "", state.accessToken, item.id)
+                detailsRes.onSuccess { detailed ->
+                    _uiState.update { current ->
+                        if (current.selectedMediaItem?.id == detailed.id) current.copy(selectedMediaItem = detailed) else current
+                    }
+                    _playbackStatus.update { current ->
+                        if (current.currentItem?.id == detailed.id) current.copy(currentItem = detailed) else current
+                    }
+                }
+            }
+        }
 
         viewModelScope.launch {
             _playbackStatus.value = DlnaPlaybackStatus(
                 state = TransportState.BUFFERING,
-                currentItem = item,
+                currentItem = enrichedItem,
                 positionSeconds = 0L,
                 durationSeconds = initialDuration,
                 volume = _playbackStatus.value.volume,
@@ -693,12 +719,14 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
             _uiState.update {
                 it.copy(
                     currentScreen = Screen.REMOTE_CONTROL,
-                    isPlaybackActive = true
+                    isPlaybackActive = true,
+                    selectedAudioTrackIndex = selectedAudio,
+                    selectedSubtitleTrackIndex = selectedSub
                 )
             }
 
             // Real UPnP AVTransport SetAVTransportURI & Play calls
-            val setUriResult = dlnaController.setAvTransportUri(targetDevice, streamUrl, item)
+            val setUriResult = dlnaController.setAvTransportUri(targetDevice, streamUrl, enrichedItem)
             if (setUriResult.isFailure) {
                 _uiState.update {
                     it.copy(
@@ -723,13 +751,15 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Re-applies stream URL with updated audio transcode or subtitle burn settings to current playback.
+     * Re-applies stream URL with updated audio track, transcode mode, or subtitle settings to current playback.
+     * Automatically resumes at current timestamp.
      */
     fun applyPlaybackSettings() {
         val currentItem = _playbackStatus.value.currentItem ?: _uiState.value.selectedMediaItem
         val targetDevice = _uiState.value.connectedDevice
         if (currentItem != null && targetDevice != null) {
             val state = _uiState.value
+            val currentPos = _playbackStatus.value.positionSeconds
             val streamUrl = currentItem.getPlaybackStreamUrl(
                 serverUrl = state.serverUrl,
                 token = state.accessToken,
@@ -739,15 +769,22 @@ class JellyRemoteViewModel(application: Application) : AndroidViewModel(applicat
                 selectedAudioIndex = state.selectedAudioTrackIndex
             )
             viewModelScope.launch {
-                val subNotice = if (state.selectedSubtitleTrackIndex != null && state.burnSubtitles) " with burned subtitles" else ""
+                val currentTrackName = currentItem.audioTracks.find { it.index == state.selectedAudioTrackIndex }?.title
+                val trackMsg = if (currentTrackName != null) " • Track: $currentTrackName" else ""
+                val subNotice = if (state.selectedSubtitleTrackIndex != null && state.burnSubtitles) " + Subs" else ""
                 _uiState.update {
                     it.copy(
-                        toastMessage = "Updating stream on ${targetDevice.friendlyName} (${state.audioTranscodeMode.displayName}$subNotice)..."
+                        toastMessage = "Switching stream (${state.audioTranscodeMode.displayName}$trackMsg$subNotice)..."
                     )
                 }
                 dlnaController.setAvTransportUri(targetDevice, streamUrl, currentItem)
                 delay(350)
                 dlnaController.play(targetDevice)
+                // Seamlessly resume playback position if already past 4 seconds
+                if (currentPos > 4) {
+                    delay(700)
+                    dlnaController.seek(targetDevice, currentPos)
+                }
             }
         }
     }

@@ -97,11 +97,14 @@ data class JellyfinMediaItemDto(
 enum class AudioTranscodeMode(
     val displayName: String,
     val codecParam: String,
+    val container: String,
     val description: String
 ) {
-    AAC("AAC Stereo", "aac", "Transcodes AC3/DTS to AAC 2.0 (Fixes 'No Audio' on DLNA TVs)"),
-    DIRECT("Original (Direct)", "copy", "Streams original audio untouched"),
-    MP3("MP3 Stereo", "mp3", "Transcodes to MP3 2.0 (For older legacy players)")
+    AAC("AAC (MP4)", "aac", "mp4", "Transcodes audio to AAC 2.0 inside MP4. Universal for smart TVs."),
+    AAC_TS("AAC (MPEG-TS)", "aac", "ts", "Transcodes to AAC 2.0 inside MPEG-TS. Fixes 'Unsupported' on AV receivers."),
+    AC3("AC3 5.1", "ac3", "mp4", "Transcodes to Dolby Digital 5.1 (Best for surround receivers)."),
+    DIRECT("Original (Direct)", "copy", "mp4", "Streams original audio & video untouched (Zero CPU usage)."),
+    MP3("MP3 Stereo", "mp3", "mp4", "Transcodes to MP3 2.0 (For legacy UPnP players).")
 }
 
 @Immutable
@@ -230,35 +233,46 @@ data class JellyfinMediaItem(
         val isDirectPlay = audioMode == AudioTranscodeMode.DIRECT && !hasSubtitleBurn && selectedAudioIndex == null
 
         if (isDirectPlay) {
-            return "$cleanServer/Videos/$id/stream.mp4?static=true$apiKeyParam"
+            return "$cleanServer/Videos/$id/stream.mp4?static=true&MediaSourceId=$id$apiKeyParam"
         }
 
-        // Build progressive MP4 transcoding URL tailored for DLNA renderers
-        val urlBuilder = java.lang.StringBuilder("$cleanServer/Videos/$id/stream.mp4?static=false")
+        // Determine streaming container: "ts" for MPEG-TS mode, "mp4" for MP4 modes
+        val containerExt = if (audioMode == AudioTranscodeMode.AAC_TS) "ts" else "mp4"
+        val urlBuilder = java.lang.StringBuilder("$cleanServer/Videos/$id/stream.$containerExt?static=false")
+
+        // Mandatory parameters for Jellyfin track selection & session management
+        urlBuilder.append("&MediaSourceId=$id")
+        urlBuilder.append("&DeviceId=JellyCastAndroid")
+        urlBuilder.append("&PlaySessionId=${System.currentTimeMillis()}")
 
         // Audio configuration
         when (audioMode) {
-            AudioTranscodeMode.AAC -> {
-                urlBuilder.append("&AudioCodec=aac&TranscodingMaxAudioChannels=2&AudioBitRate=256000")
+            AudioTranscodeMode.AAC, AudioTranscodeMode.AAC_TS -> {
+                urlBuilder.append("&AudioCodec=aac&TranscodingMaxAudioChannels=2&AudioBitRate=256000&allowAudioStreamCopy=false")
+            }
+            AudioTranscodeMode.AC3 -> {
+                urlBuilder.append("&AudioCodec=ac3&TranscodingMaxAudioChannels=6&AudioBitRate=384000&allowAudioStreamCopy=false")
             }
             AudioTranscodeMode.MP3 -> {
-                urlBuilder.append("&AudioCodec=mp3&TranscodingMaxAudioChannels=2&AudioBitRate=256000")
+                urlBuilder.append("&AudioCodec=mp3&TranscodingMaxAudioChannels=2&AudioBitRate=256000&allowAudioStreamCopy=false")
             }
             AudioTranscodeMode.DIRECT -> {
-                urlBuilder.append("&AudioCodec=copy")
+                urlBuilder.append("&AudioCodec=copy&allowAudioStreamCopy=true")
             }
         }
 
+        // Target audio stream index (requires MediaSourceId to take effect in Jellyfin)
         if (selectedAudioIndex != null) {
             urlBuilder.append("&AudioStreamIndex=$selectedAudioIndex")
         }
 
-        // Subtitle burn-in configuration (Encode directly into video frames for DLNA)
+        // Video & Subtitle configuration
         if (hasSubtitleBurn) {
-            urlBuilder.append("&SubtitleMethod=Encode&SubtitleStreamIndex=$selectedSubtitleIndex&VideoCodec=h264")
+            // Re-encode video frames to burn subtitles
+            urlBuilder.append("&SubtitleMethod=Encode&SubtitleStreamIndex=$selectedSubtitleIndex&VideoCodec=h264&allowVideoStreamCopy=false")
         } else {
-            // No subtitle burn: allow copying video frames directly if compatible
-            urlBuilder.append("&VideoCodec=copy,h264")
+            // Stream-copy original video frames without re-encoding (zero CPU overhead)
+            urlBuilder.append("&VideoCodec=copy&allowVideoStreamCopy=true&enableAutoStreamCopy=true")
         }
 
         urlBuilder.append(apiKeyParam)

@@ -627,7 +627,12 @@ class DlnaController(private val context: Context) {
     private fun buildDidlMetadata(item: JellyfinMediaItem, mediaUrl: String): String {
         val isAudio = item.type.equals("Audio", ignoreCase = true)
         val upnpClass = if (isAudio) "object.item.audioItem.musicTrack" else "object.item.videoItem.movie"
-        val mimeType = if (isAudio) "audio/mp3" else "video/mp4"
+        val mimeType = when {
+            isAudio -> "audio/mpeg"
+            mediaUrl.contains("/stream.ts", ignoreCase = true) || mediaUrl.contains(".ts?", ignoreCase = true) -> "video/mp2t"
+            mediaUrl.contains("/stream.mkv", ignoreCase = true) || mediaUrl.contains(".mkv?", ignoreCase = true) -> "video/x-matroska"
+            else -> "video/mp4"
+        }
         val cleanTitle = item.name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         val escapedMediaUrl = xmlEscape(mediaUrl)
 

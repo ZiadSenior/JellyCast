@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -292,6 +294,37 @@ fun RemoteControlScreen(
                         }
                     }
 
+                    // Audio Track Pill if multi-track
+                    val activeTrack = item?.audioTracks?.find { it.index == selectedAudioTrackIndex }
+                        ?: item?.audioTracks?.firstOrNull()
+                    if ((item?.audioTracks?.size ?: 0) > 1) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SurfaceDark)
+                                .border(1.dp, SurfaceElevated, RoundedCornerShape(8.dp))
+                                .clickable { showStreamSettingsDialog = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("remote_audio_track_pill")
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Audiotrack,
+                                    contentDescription = null,
+                                    tint = CastCyan,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = activeTrack?.language?.uppercase() ?: "Track #${activeTrack?.index ?: 1}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CastCyan
+                                )
+                            }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -335,7 +368,7 @@ fun RemoteControlScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Stream Options",
+                                text = "Options",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
@@ -369,21 +402,23 @@ fun RemoteControlScreen(
                     text = {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Audio Format",
+                                text = "Audio Transcode Format",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextSecondary
                             )
                             Text(
-                                text = "Switching to AAC fixes silence on TVs lacking AC3/DTS support.",
+                                text = audioTranscodeMode.description,
                                 fontSize = 10.sp,
                                 color = TextMuted
                             )
                             Spacer(modifier = Modifier.height(6.dp))
 
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 AudioTranscodeMode.values().forEach { mode ->
                                     val isSelected = audioTranscodeMode == mode
@@ -420,6 +455,118 @@ fun RemoteControlScreen(
                                             selectedBorderColor = CastCyan
                                         )
                                     )
+                                }
+                            }
+
+                            // Audio Track Selector
+                            val audioTracks = item?.audioTracks ?: emptyList()
+                            if (audioTracks.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(SurfaceElevated))
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Text(
+                                    text = "Audio Track (${audioTracks.size} available)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextSecondary
+                                )
+                                Text(
+                                    text = "Jellyfin transcodes this track to ${audioTranscodeMode.displayName} so your receiver plays it with sound.",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                val currentAudio = audioTracks.find { it.index == selectedAudioTrackIndex }
+                                    ?: audioTracks.firstOrNull()
+
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(SurfaceVariantDark)
+                                            .clickable { showAudioDropdown = true }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Audiotrack,
+                                                contentDescription = null,
+                                                tint = CastCyan,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = currentAudio?.title ?: "Default Track",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "${currentAudio?.codec?.uppercase() ?: "AUDIO"}${if (currentAudio?.language != null) " • ${currentAudio.language.uppercase()}" else ""}${if (currentAudio?.channels != null) " • ${if (currentAudio.channels == 6) "5.1" else if (currentAudio.channels == 2) "Stereo" else "${currentAudio.channels}ch"}" else ""}",
+                                                    fontSize = 10.sp,
+                                                    color = TextSecondary
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "Change",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = CastCyan
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showAudioDropdown,
+                                        onDismissRequest = { showAudioDropdown = false }
+                                    ) {
+                                        audioTracks.forEach { track ->
+                                            val isSelected = (selectedAudioTrackIndex == track.index) ||
+                                                (selectedAudioTrackIndex == null && track.isDefault)
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Column {
+                                                        Text(
+                                                            text = track.title + if (track.isDefault) " (Default)" else "",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isSelected) CastCyan else TextPrimary
+                                                        )
+                                                        Text(
+                                                            text = "Track #${track.index} • ${track.codec?.uppercase() ?: "AUDIO"}${if (track.language != null) " • ${track.language.uppercase()}" else ""}",
+                                                            fontSize = 10.sp,
+                                                            color = TextMuted
+                                                        )
+                                                    }
+                                                },
+                                                leadingIcon = if (isSelected) {
+                                                    {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = CastCyan,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                } else null,
+                                                onClick = {
+                                                    onAudioTrackChange(track.index)
+                                                    showAudioDropdown = false
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
